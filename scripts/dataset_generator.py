@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2023-12-23 13:11:16
+# @Last Modified at: 2023-12-25 13:28:49
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -33,7 +33,8 @@ CONSTANTS = {
     "VOL_HEIGHT": 1536,
     "VOL_WIDTH": 1536,
     "VOL_DEPTH": 384,
-    "DEPTH_OFFSET": 1,
+    "VOL_DEPTH_OFFSET": 1,
+    "CAM_DEPTH_OFFSET": 3,
     "STATIC_SCALE": 2,
 }
 
@@ -71,9 +72,21 @@ def get_volume(points, scale=1, volume=None):
     coordinates = points[:, :3].float()
     coordinates[:, 0] = (coordinates[:, 0] + volume.size(1)) / scale  # x
     coordinates[:, 1] = (coordinates[:, 1] + volume.size(0)) / scale  # y
-    coordinates[:, 2] = coordinates[:, 2] / scale + CONSTANTS["DEPTH_OFFSET"]  # z
+    coordinates[:, 2] = coordinates[:, 2] / scale + CONSTANTS["VOL_DEPTH_OFFSET"]  # z
     coordinates = (coordinates + 0.5).long()
     logging.debug("Volume Size (HxWxD): %s" % (volume.size(),))
+    logging.debug(
+        "X Min: %d, X Max: %d"
+        % (torch.min(coordinates[:, 0]), torch.max(coordinates[:, 0]))
+    )
+    logging.debug(
+        "Y Min: %d, X Max: %d"
+        % (torch.min(coordinates[:, 1]), torch.max(coordinates[:, 1]))
+    )
+    logging.debug(
+        "Z Min: %d, X Max: %d"
+        % (torch.min(coordinates[:, 2]), torch.max(coordinates[:, 2]))
+    )
     assert (coordinates[:, 0] < volume.size(1)).all()
     assert (coordinates[:, 1] < volume.size(0)).all()
     assert (coordinates[:, 2] < volume.size(2)).all()
@@ -97,7 +110,7 @@ def get_volume_with_roof_1f(height_field, seg_map, freeways):
     volume = get_volume(
         freeways, scale=CONSTANTS["STATIC_SCALE"], volume=volume.squeeze(dim=0)
     )
-    return volume
+    return volume.squeeze(dim=0)
 
 
 def get_voxel_raycasting(cam_rig, cam_pose, volume):
@@ -108,10 +121,9 @@ def get_voxel_raycasting(cam_rig, cam_pose, volume):
     cam_pose["ty"] = (float(cam_pose["ty"]) / 100 + volume.size(0)) / CONSTANTS[
         "STATIC_SCALE"
     ]
-    cam_pose["tz"] = (
-        float(cam_pose["tz"]) / 100 / CONSTANTS["STATIC_SCALE"]
-        + CONSTANTS["DEPTH_OFFSET"]
-    )
+    cam_pose["tz"] = (float(cam_pose["tz"]) / 100) / CONSTANTS[
+        "STATIC_SCALE"
+    ] + CONSTANTS["CAM_DEPTH_OFFSET"]
     cam_position = np.array([cam_pose["tx"], cam_pose["ty"], cam_pose["tz"]])
     cam_look_at = get_look_at_position(
         cam_position,
@@ -188,10 +200,10 @@ def main(data_dir, is_debug):
             "X Min: %d, X Max: %d" % (np.min(volume[:, 0]), np.max(volume[:, 0]))
         )
         logging.debug(
-            "Y Min: %d, X Max: %d" % (np.min(volume[:, 1]), np.max(volume[:, 1]))
+            "Y Min: %d, Y Max: %d" % (np.min(volume[:, 1]), np.max(volume[:, 1]))
         )
         logging.debug(
-            "Z Min: %d, X Max: %d" % (np.min(volume[:, 2]), np.max(volume[:, 2]))
+            "Z Min: %d, Z Max: %d" % (np.min(volume[:, 2]), np.max(volume[:, 2]))
         )
         logging.debug(
             "Label Min: %d, Label Max: %d"
@@ -219,29 +231,31 @@ def main(data_dir, is_debug):
         os.makedirs(raycasting_dir, exist_ok=True)
         with open(os.path.join(data_dir, city, "CameraRig.json")) as fp:
             cam_rig = json.load(fp)
+
+        rows = []
         with open(os.path.join(data_dir, city, "CameraPoses.csv")) as fp:
             reader = csv.DictReader(fp)
-            for row in tqdm(reader):
-                raycasting = get_voxel_raycasting(
-                    cam_rig["cameras"]["CameraComponent"], row, volume
-                )
-                if is_debug:
-                    seg_map = utils.helpers.get_seg_map(
-                        raycasting["voxel_id"].squeeze()[..., 0].cpu().numpy()
-                    )
-                    utils.helpers.get_diffuse_shading_img(
-                        seg_map,
-                        raycasting["depth2"],
-                        raycasting["raydirs"],
-                        raycasting["cam_origin"],
-                    ).save(os.path.join(raycasting_dir, "%04d.png" % int(row["id"])))
-                else:
-                    with open(
-                        os.path.join(raycasting_dir, "%04d.pkl" % int(row["id"])), "wb"
-                    ) as ofp:
-                        pickle.dump(raycasting, ofp)
+            rows = [r for r in reader]
 
-                assert False
+        for r in tqdm(rows):
+            raycasting = get_voxel_raycasting(
+                cam_rig["cameras"]["CameraComponent"], r, volume
+            )
+            if is_debug:
+                seg_map = utils.helpers.get_seg_map(
+                    raycasting["voxel_id"].squeeze()[..., 0].cpu().numpy()
+                )
+                utils.helpers.get_diffuse_shading_img(
+                    seg_map,
+                    raycasting["depth2"],
+                    raycasting["raydirs"],
+                    raycasting["cam_origin"],
+                ).save(os.path.join(raycasting_dir, "%04d.png" % int(r["id"])))
+            else:
+                with open(
+                    os.path.join(raycasting_dir, "%04d.pkl" % int(r["id"])), "wb"
+                ) as ofp:
+                    pickle.dump(raycasting, ofp)
 
 
 if __name__ == "__main__":
