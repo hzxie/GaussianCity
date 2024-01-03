@@ -9,7 +9,7 @@
 
 import torch
 
-import extrude_footprint_ext
+import footprint_extruder_ext
 
 
 class FootprintExtruder(torch.nn.Module):
@@ -34,7 +34,7 @@ class FootprintExtruder(torch.nn.Module):
         assert torch.max(height_field) < self.max_height, "Max Value %d" % torch.max(
             height_field
         )
-        return ExtrudeFootprintFunction.apply(
+        return FootprintExtruderFunction.apply(
             height_field,
             seg_map,
             self.l1_height,
@@ -46,7 +46,7 @@ class FootprintExtruder(torch.nn.Module):
         )
 
 
-class ExtrudeFootprintFunction(torch.autograd.Function):
+class FootprintExtruderFunction(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx,
@@ -61,7 +61,7 @@ class ExtrudeFootprintFunction(torch.autograd.Function):
     ):
         # height_field.shape: (B, C, H, W)
         # seg_map.shape: (B, C, H, W)
-        return extrude_footprint_ext.forward(
+        return footprint_extruder_ext.forward(
             height_field,
             seg_map,
             l1_height,

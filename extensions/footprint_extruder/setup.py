@@ -11,14 +11,14 @@ from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 setup(
-    name="extrude_footprint",
+    name="footprint_extruder",
     version="1.0.0",
     ext_modules=[
         CUDAExtension(
-            "extrude_footprint_ext",
+            "footprint_extruder_ext",
             [
                 "bindings.cpp",
-                "extrude_footprint_ext.cu",
+                "footprint_extruder_ext.cu",
             ],
         ),
     ],
