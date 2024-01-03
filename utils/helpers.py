@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2023-07-15 13:28:13
+# @Last Modified at: 2023-12-26 16:30:45
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -42,15 +42,17 @@ def static_vars(**kwargs):
 def get_seg_map_palette():
     palatte = np.array([[i, i, i] for i in range(256)])
     # fmt: off
-    palatte[:7] = np.array(
+    palatte[:9] = np.array(
         [
             [0, 0, 0],       # empty        -> black (ONLY used in voxel)
-            [96, 0, 0],      # highway      -> red
-            [96, 96, 0],     # building     -> yellow
-            [0, 96, 0],      # green lands  -> green
-            [0, 96, 96],     # construction -> cyan
-            [0, 0, 96],      # water        -> blue
-            [128, 128, 128], # ground       -> gray
+            [96, 0, 0],      # road         -> red
+            [96, 96, 0],     # freeway      -> yellow
+            [0, 96, 0],      # car          -> green
+            [0, 96, 96],     # water        -> cyan
+            [0, 0, 96],      # sky          -> blue
+            [96, 0, 96],     # building     -> magenta
+            [255, 0, 255],   # bldg. roof   -> lime yellow
+            [96, 96, 96],    # ground       -> gray
         ]
     )
     # fmt: on
