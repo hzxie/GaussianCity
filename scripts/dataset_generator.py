@@ -11,6 +11,7 @@ import argparse
 import csv
 import json
 import logging
+import logging.config
 import numpy as np
 import os
 import pickle
@@ -36,14 +37,23 @@ CONSTANTS = {
     "VOL_DEPTH_OFFSET": 1,
     "CAM_DEPTH_OFFSET": 3,
     "STATIC_SCALE": 2,
+    "BLD_INS_MIN_ID": 10,
+    "CAR_INS_MIN_ID": 5000,
+    "CAR_CLS_ID": 3,
+    "BLD_FACADE_CLS_ID": 6,
+    "BLD_ROOF_CLS_ID": 7,
 }
 
 
 def get_topdown_projection(points):
     tdp = extensions.topdown_projector.TopDownProjector()
-    # NOTE: Semantic Labels
-    # Road: 1; Freeway: 2; Others: 6
-    # Pillar: 3; Water: 4, Sky: 5
+    # NOTE: Instance Labels
+    #       In the export points from Houdini, building starts from 10 and
+    #       car starts from 5000.
+    #
+    # Undefined: 0; Road: 1; Freeway: 2;
+    # Car: 3; Water: 4; Sky: 5; Others (Ground): 8;
+    # Building: 4n -> 6; Roof: 4n+1 -> 7
     freeway_indexes = torch.isin(
         points[:, 3], torch.tensor([2, 3], device=points.device)
     )
@@ -190,7 +200,21 @@ def get_ray_voxel_intersection(cam_rig, cam_position, cam_look_at, volume):
     }
 
 
-def main(data_dir, is_debug):
+def get_ambiguous_seg_mask(voxel_id, est_seg_map):
+    ins_seg_map = voxel_id.squeeze()[..., 0].copy()
+    # NOTE: In ins_seg_map, 4n and 4n+1 denote building facade and roof, respectively.
+    #       In est_seg_map, 6 and 7 denote building facade and roof, respectively.
+    ins_seg_map[
+        (ins_seg_map >= CONSTANTS["BLD_INS_MIN_ID"]) & (ins_seg_map % 4 == 0)
+    ] = CONSTANTS["BLD_FACADE_CLS_ID"]
+    ins_seg_map[
+        (ins_seg_map >= CONSTANTS["BLD_INS_MIN_ID"]) & (ins_seg_map % 4 == 1)
+    ] = CONSTANTS["BLD_ROOF_CLS_ID"]
+    ins_seg_map[ins_seg_map >= CONSTANTS["CAR_INS_MIN_ID"]] = CONSTANTS["CAR_CLS_ID"]
+    return ins_seg_map == np.array(est_seg_map.convert("P"))
+
+
+def main(data_dir, seg_map_file_pattern, is_debug):
     cities = sorted(os.listdir(data_dir))
     for city in tqdm(cities):
         with open(os.path.join(data_dir, city, "VOLUME.pkl"), "rb") as fp:
@@ -252,20 +276,34 @@ def main(data_dir, is_debug):
                     raycasting["cam_origin"],
                 ).save(os.path.join(raycasting_dir, "%04d.png" % int(r["id"])))
             else:
+                est_seg_map = Image.open(
+                    os.path.join(
+                        data_dir, city, seg_map_file_pattern % (city, int(r["id"]))
+                    )
+                )
+                raycasting = {k: v.cpu().numpy() for k, v in raycasting.items()}
                 with open(
                     os.path.join(raycasting_dir, "%04d.pkl" % int(r["id"])), "wb"
                 ) as ofp:
+                    raycasting["mask"] = get_ambiguous_seg_mask(
+                        raycasting["voxel_id"], est_seg_map
+                    )
                     pickle.dump(raycasting, ofp)
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        # filename=os.path.join(PROJECT_HOME, "output", "dataset-generator.log"),
-        format="[%(levelname)s] %(asctime)s %(message)s",
-        level=logging.DEBUG,
+    logging.config.dictConfig(
+        {
+            "disable_existing_loggers": True,
+            "format": "[%(levelname)s] %(asctime)s %(message)s",
+            "level": logging.DEBUG,
+            "version": 1,
+        }
     )
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", default=os.path.join(PROJECT_HOME, "data"))
+    parser.add_argument("--seg_map", default="SemanticImage/%sSequence.%04d.png")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
-    main(args.data_dir, args.debug)
+    main(args.data_dir, args.seg_map, args.debug)

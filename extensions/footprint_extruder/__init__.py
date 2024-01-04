@@ -17,8 +17,8 @@ class FootprintExtruder(torch.nn.Module):
         self,
         l1_height=5,
         roof_height=1,
-        l1_id_offset=1,
-        roof_id_offset=2,
+        l1_id_offset=0,
+        roof_id_offset=1,
         footprint_id_range=[100, 5000],
         max_height=384,
     ):

@@ -65,7 +65,7 @@ if __name__ == "__main__":
         "--work_dir", default=os.path.join(PROJECT_HOME, "data", "City01")
     )
     parser.add_argument("--input_dir", default="SemanticImage")
-    parser.add_argument("--output_dir", default="seg")
+    parser.add_argument("--output_dir", default="SemanticImage")
     args = parser.parse_args()
     main(
         os.path.join(args.work_dir, args.input_dir),
