@@ -253,24 +253,24 @@ def main(data_dir, seg_map_file_pattern, is_debug):
         volume = torch.from_numpy(volume.astype(np.int32)).cuda()
         seg_map, height_field, freeways = get_topdown_projection(volume)
         Image.fromarray(seg_map.cpu().numpy()).save(
-            os.path.join(data_dir, city, "seg.png")
+            os.path.join(data_dir, city, "SegLayout.png")
         )
         Image.fromarray(height_field.cpu().numpy()).save(
-            os.path.join(data_dir, city, "hf.png")
+            os.path.join(data_dir, city, "HeightField.png")
         )
-        with open(os.path.join(data_dir, city, "freeway.pkl"), "wb") as fp:
+        with open(os.path.join(data_dir, city, "Freeway.pkl"), "wb") as fp:
             pickle.dump(freeways, fp)
 
         # Generate footprint bounding boxes
         footprint_bboxes = get_footprint_bboxes(seg_map.cpu().numpy())
-        with open(os.path.join(data_dir, city, "footprints.pkl"), "wb") as fp:
+        with open(os.path.join(data_dir, city, "Footprints.pkl"), "wb") as fp:
             pickle.dump(footprint_bboxes, fp)
 
         # Rebuild 3D volume with roof and 1f
         volume = get_volume_with_roof_1f(height_field, seg_map, freeways)
 
         # Generate raycasting results
-        raycasting_dir = os.path.join(data_dir, city, "raycasting")
+        raycasting_dir = os.path.join(data_dir, city, "Raycasting")
         os.makedirs(raycasting_dir, exist_ok=True)
         with open(os.path.join(data_dir, city, "CameraRig.json")) as fp:
             cam_rig = json.load(fp)
