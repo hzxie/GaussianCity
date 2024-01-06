@@ -4,10 +4,11 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2023-12-25 13:28:49
+# @Last Modified at: 2024-01-06 10:23:08
 # @Email:  root@haozhexie.com
 
 import argparse
+import cv2
 import csv
 import json
 import logging
@@ -37,7 +38,7 @@ CONSTANTS = {
     "VOL_DEPTH_OFFSET": 1,
     "CAM_DEPTH_OFFSET": 3,
     "STATIC_SCALE": 2,
-    "BLD_INS_MIN_ID": 10,
+    "BLD_INS_MIN_ID": 100,
     "CAR_INS_MIN_ID": 5000,
     "CAR_CLS_ID": 3,
     "BLD_FACADE_CLS_ID": 6,
@@ -48,7 +49,7 @@ CONSTANTS = {
 def get_topdown_projection(points):
     tdp = extensions.topdown_projector.TopDownProjector()
     # NOTE: Instance Labels
-    #       In the export points from Houdini, building starts from 10 and
+    #       In the export points from Houdini, building starts from 100 and
     #       car starts from 5000.
     #
     # Undefined: 0; Road: 1; Freeway: 2;
@@ -66,6 +67,19 @@ def get_topdown_projection(points):
 
     seg_map[seg_map == 0] = 4  # Assign the rest area as water area (as in City Sample)
     return seg_map.squeeze(dim=0), height_field.squeeze(dim=0), freeways
+
+
+def get_footprint_bboxes(seg_map):
+    building_instances = [
+        i
+        for i in np.unique(seg_map)
+        if i >= CONSTANTS["BLD_INS_MIN_ID"] and i < CONSTANTS["CAR_INS_MIN_ID"]
+    ]
+    bboxes = {}
+    for bi in tqdm(building_instances, desc="Generating Building Bounding Boxes", leave=False):
+        bboxes[bi] = cv2.boundingRect((seg_map == bi).astype(np.uint8))
+
+    return bboxes
 
 
 def get_volume(points, scale=1, volume=None):
@@ -204,13 +218,13 @@ def get_ambiguous_seg_mask(voxel_id, est_seg_map):
     ins_seg_map = voxel_id.squeeze()[..., 0].copy()
     # NOTE: In ins_seg_map, 4n and 4n+1 denote building facade and roof, respectively.
     #       In est_seg_map, 6 and 7 denote building facade and roof, respectively.
+    ins_seg_map[ins_seg_map >= CONSTANTS["CAR_INS_MIN_ID"]] = CONSTANTS["CAR_CLS_ID"]
     ins_seg_map[
         (ins_seg_map >= CONSTANTS["BLD_INS_MIN_ID"]) & (ins_seg_map % 4 == 0)
     ] = CONSTANTS["BLD_FACADE_CLS_ID"]
     ins_seg_map[
         (ins_seg_map >= CONSTANTS["BLD_INS_MIN_ID"]) & (ins_seg_map % 4 == 1)
     ] = CONSTANTS["BLD_ROOF_CLS_ID"]
-    ins_seg_map[ins_seg_map >= CONSTANTS["CAR_INS_MIN_ID"]] = CONSTANTS["CAR_CLS_ID"]
     return ins_seg_map == np.array(est_seg_map.convert("P"))
 
 
@@ -246,6 +260,11 @@ def main(data_dir, seg_map_file_pattern, is_debug):
         )
         with open(os.path.join(data_dir, city, "freeway.pkl"), "wb") as fp:
             pickle.dump(freeways, fp)
+
+        # Generate footprint bounding boxes
+        footprint_bboxes = get_footprint_bboxes(seg_map.cpu().numpy())
+        with open(os.path.join(data_dir, city, "footprints.pkl"), "wb") as fp:
+            pickle.dump(footprint_bboxes, fp)
 
         # Rebuild 3D volume with roof and 1f
         volume = get_volume_with_roof_1f(height_field, seg_map, freeways)
@@ -300,7 +319,6 @@ if __name__ == "__main__":
             "version": 1,
         }
     )
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", default=os.path.join(PROJECT_HOME, "data"))
     parser.add_argument("--seg_map", default="SemanticImage/%sSequence.%04d.png")
