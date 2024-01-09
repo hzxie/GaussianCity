@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-25 15:52:37
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 14:40:42
+# @Last Modified at: 2024-01-09 14:59:19
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -12,6 +12,7 @@ import logging
 import numpy as np
 import os
 import sys
+import torch
 
 from tqdm import tqdm
 from PIL import Image
@@ -25,23 +26,23 @@ import utils.helpers
 
 def get_discrete_seg_maps(img):
     CLASSES = {
-        "Others": np.array([255, 255, 255]),
-        "Road": np.array([255, 84, 50]),
-        "Freeway": np.array([230, 235, 90]),
-        "Car": np.array([60, 230, 110]),
-        "Water": np.array([140, 230, 230]),
-        "Sky": np.array([0, 0, 0]),
-        "Building": np.array([180, 140, 30]),
-        "Roof": np.array([250, 150, 240]),
-        "Ground": np.array([90, 110, 240]),
+        "Undefined": torch.tensor([255, 255, 255], dtype=torch.int16, device=img.device),
+        "Road": torch.tensor([255, 84, 50], dtype=torch.int16, device=img.device),
+        "Freeway": torch.tensor([230, 235, 90], dtype=torch.int16, device=img.device),
+        "Car": torch.tensor([60, 230, 110], dtype=torch.int16, device=img.device),
+        "Water": torch.tensor([140, 230, 230], dtype=torch.int16, device=img.device),
+        "Sky": torch.tensor([0, 0, 0], dtype=torch.int16, device=img.device),
+        "Building": torch.tensor([180, 140, 30], dtype=torch.int16, device=img.device),
+        "Roof": torch.tensor([250, 150, 240], dtype=torch.int16, device=img.device),
+        "Ground": torch.tensor([90, 110, 240], dtype=torch.int16, device=img.device),
     }
     h, w, _ = img.shape
-    dists = np.zeros((h, w, len(CLASSES)))
+    dists = torch.zeros((h, w, len(CLASSES)))
     for idx, mean_color in enumerate(CLASSES.values()):
-        dists[..., idx] = np.sum(np.abs(img - mean_color), axis=2)
+        dists[..., idx] = torch.sum(torch.abs(img - mean_color), dim=2)
 
-    dists = np.reshape(dists, (h * w, len(CLASSES)))
-    return np.argmin(dists, axis=1).reshape(h, w)
+    dists = torch.reshape(dists, (h * w, len(CLASSES)))
+    return torch.argmin(dists, dim=1).reshape(h, w).cpu().numpy()
 
 
 def main(input_dir, output_dir):
@@ -49,7 +50,9 @@ def main(input_dir, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     for i in tqdm(images):
         img = Image.open(os.path.join(input_dir, i))
-        seg_map = get_discrete_seg_maps(np.array(img))
+        # NOTE: Replacing np.int16 to np.uint8 causes bugs in PyTorch
+        img = torch.from_numpy(np.array(img).astype(np.int16)).cuda()
+        seg_map = get_discrete_seg_maps(img)
         fn, _ = os.path.splitext(i)
         utils.helpers.get_seg_map(seg_map).save(os.path.join(output_dir, "%s.png" % fn))
 
