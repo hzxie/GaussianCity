@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-21 19:46:36
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 16:04:02
+# @Last Modified at: 2024-01-09 18:19:50
 # @Email:  root@haozhexie.com
 
 import logging
@@ -79,7 +79,13 @@ def test(cfg, test_data_loader=None, gancraft=None):
                         masks[
                             torch.isin(
                                 voxel_id[:, None, ..., 0, 0],
-                                torch.tensor([2, 7], device=gancraft.device),
+                                torch.tensor(
+                                    [
+                                        cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
+                                        cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID,
+                                    ],
+                                    device=gancraft.device,
+                                ),
                             )
                         ] = 1
                         footage = footage * masks

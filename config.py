@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 15:36:45
+# @Last Modified at: 2024-01-09 18:24:17
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -30,7 +30,7 @@ cfg.DATASETS.CITY_SAMPLE.CITY_STYLES             = ["Day"]
 cfg.DATASETS.CITY_SAMPLE_BUILDING                = EasyDict()
 cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID  = 7
 cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID    = 8
-cfg.DATASETS.CITY_SAMPLE_BUILDING.PIN_MEMORY     = ["hf", "seg"]
+cfg.DATASETS.CITY_SAMPLE_BUILDING.PIN_MEMORY     = ["hf", "seg", "footprint_bboxes"]
 cfg.DATASETS.CITY_SAMPLE_BUILDING.N_REPEAT       = 10
 cfg.DATASETS.CITY_SAMPLE_BUILDING.VOL_SIZE       = 672
 
@@ -76,6 +76,8 @@ cfg.NETWORK                                      = EasyDict()
 cfg.NETWORK.GANCRAFT                             = EasyDict()
 cfg.NETWORK.GANCRAFT.BUILDING_MODE               = False
 cfg.NETWORK.GANCRAFT.N_CLASSES                   = cfg.DATASETS.CITY_SAMPLE.N_CLASSES
+cfg.NETWORK.GANCRAFT.FACADE_CLS_ID               = cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID
+cfg.NETWORK.GANCRAFT.ROOF_CLS_ID                 = cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID
 cfg.NETWORK.GANCRAFT.STYLE_DIM                   = 256
 cfg.NETWORK.GANCRAFT.N_SAMPLE_POINTS_PER_RAY     = 24
 cfg.NETWORK.GANCRAFT.DIST_SCALE                  = 0.25

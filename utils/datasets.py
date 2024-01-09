@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 16:18:32
+# @Last Modified at: 2024-01-09 18:16:57
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -118,10 +118,15 @@ class CitySampleDataset(torch.utils.data.Dataset):
                     self.memcached[v] = self._get_height_field(v, cfg)
                 elif k == "seg":
                     self.memcached[v] = self._get_seg_layout(v)
+                elif k == "footprint_bboxes":
+                    self.memcached[v] = self._get_footprint_bboxes(v)
 
         return files if split == "train" else files[-32:]
 
     def _get_height_field(self, file_path, cfg):
+        if file_path in self.memcached:
+            return self.memcached[file_path]
+
         return (
             np.array(utils.io.IO.get(file_path)) / cfg.DATASETS.CITY_SAMPLE.MAX_HEIGHT
         )
@@ -131,6 +136,12 @@ class CitySampleDataset(torch.utils.data.Dataset):
             return self.memcached[file_path]
 
         return np.array(utils.io.IO.get(file_path).convert("P"))
+
+    def _get_footprint_bboxes(self, file_path):
+        if file_path in self.memcached:
+            return self.memcached[file_path]
+
+        return utils.io.IO.get(file_path)
 
     def _get_footage_img(self, file_path):
         img = utils.io.IO.get(file_path)
@@ -250,9 +261,14 @@ class CitySampleBuildingDataset(CitySampleDataset):
         return data
 
     def _get_data(self, rendering):
-        data = {"footage": self._get_footage_img(rendering["footage"])}
+        data = {
+            "hf": self._get_height_field(rendering["hf"], self.cfg),
+            "seg": self._get_seg_layout(rendering["seg"]),
+            "footage": self._get_footage_img(rendering["footage"]),
+        }
         raycasting = utils.io.IO.get(rendering["raycasting"])
-        footprint_bboxes = utils.io.IO.get(rendering["footprint_bboxes"])
+        footprint_bboxes = self._get_footprint_bboxes(rendering["footprint_bboxes"])
+
         data["voxel_id"] = raycasting["voxel_id"]
         data["depth2"] = raycasting["depth2"]
         data["raydirs"] = raycasting["raydirs"]
@@ -269,20 +285,18 @@ class CitySampleBuildingDataset(CitySampleDataset):
             return None
 
         # NOTE: data["footprint_bboxes"] -> (dy, dx, h, w)
-        data["footprint_bboxes"] = self._get_footprint_bboxes(
+        data["footprint_bboxes"] = self._get_footprint_bbox(
             footprint_bboxes, data["building_id"]
         )
-        data["hf"] = self._get_hf_seg(
-            "hf",
-            rendering,
+        data["hf"] = self._get_img_patch(
+            data["hf"],
             self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE // 2
             + int(data["footprint_bboxes"][1]),
             self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE // 2
             + int(data["footprint_bboxes"][0]),
         )
-        data["seg"] = self._get_hf_seg(
-            "seg",
-            rendering,
+        data["seg"] = self._get_img_patch(
+            data["seg"],
             self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE // 2
             + int(data["footprint_bboxes"][1]),
             self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE // 2
@@ -291,22 +305,13 @@ class CitySampleBuildingDataset(CitySampleDataset):
         data = self.transforms(data)
         return data
 
-    def _get_hf_seg(self, field, rendering, cx, cy):
-        if field in self.cfg.DATASETS.CITY_SAMPLE_BUILDING.PIN_MEMORY:
-            img = self.memcached[rendering[field]]
-        elif field == "hf":
-            img = self._get_height_field(rendering[field], self.cfg)
-        elif field == "seg":
-            img = self._get_seg_layout(rendering[field])
-        else:
-            raise Exception("Unknown field: %s" % field)
-
+    def _get_img_patch(self, img, cx, cy):
         size = self.cfg.DATASETS.CITY_SAMPLE_BUILDING.VOL_SIZE
         half_size = size // 2
         pad_img = (
             np.zeros((size, size))
-            if len(img.shape) == 2
-            else np.zeros((size, size, img.shape[2]))
+            # if len(img.shape) == 2
+            # else np.zeros((size, size, img.shape[2]))
         )
         # Determine the crop position
         tl_x, br_x = cx - half_size, cx + half_size
@@ -359,7 +364,7 @@ class CitySampleBuildingDataset(CitySampleDataset):
         assert building_id % 4 == 0, "Building instance ID MUST BE an even number."
         return building_id if n_times < n_max_times else None
 
-    def _get_footprint_bboxes(self, footprint_bboxes, building_id):
+    def _get_footprint_bbox(self, footprint_bboxes, building_id):
         # NOTE: 0 <= dx, dy < 1536, indicating the offsets between the building
         # and the image center.
         x, y, w, h = footprint_bboxes[building_id]
