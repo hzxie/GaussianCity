@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-06 10:23:08
+# @Last Modified at: 2024-01-09 11:16:05
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -76,7 +76,9 @@ def get_footprint_bboxes(seg_map):
         if i >= CONSTANTS["BLD_INS_MIN_ID"] and i < CONSTANTS["CAR_INS_MIN_ID"]
     ]
     bboxes = {}
-    for bi in tqdm(building_instances, desc="Generating Building Bounding Boxes", leave=False):
+    for bi in tqdm(
+        building_instances, desc="Generating Building Bounding Boxes", leave=False
+    ):
         bboxes[bi] = cv2.boundingRect((seg_map == bi).astype(np.uint8))
 
     return bboxes
@@ -300,6 +302,8 @@ def main(data_dir, seg_map_file_pattern, is_debug):
                         data_dir, city, seg_map_file_pattern % (city, int(r["id"]))
                     )
                 )
+                # Change the order of channels for efficiency
+                raycasting["depth2"] = raycasting["depth2"].permute(1, 2, 0, 3, 4)
                 raycasting = {k: v.cpu().numpy() for k, v in raycasting.items()}
                 with open(
                     os.path.join(raycasting_dir, "%04d.pkl" % int(r["id"])), "wb"
