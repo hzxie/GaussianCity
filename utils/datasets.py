@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 15:36:40
+# @Last Modified at: 2024-01-09 16:18:32
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -150,9 +150,10 @@ class CitySampleDataset(torch.utils.data.Dataset):
                     },
                     {
                         "callback": "BuildingMaskRemap",
+                        # NOTE: Map both facade and roof to facade (in BG mode).
                         "parameters": {
-                            "bld_facade_label": BULIDING_MASK_ID,
-                            "bld_roof_label": BULIDING_MASK_ID,
+                            "bld_facade_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
+                            "bld_roof_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
                             "min_bld_ins_id": 10,
                         },
                         "objects": ["voxel_id", "seg"],
@@ -194,8 +195,8 @@ class CitySampleDataset(torch.utils.data.Dataset):
                     {
                         "callback": "BuildingMaskRemap",
                         "parameters": {
-                            "bld_facade_label": BULIDING_MASK_ID,
-                            "bld_roof_label": BULIDING_MASK_ID,
+                            "bld_facade_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
+                            "bld_roof_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
                             "min_bld_ins_id": 10,
                         },
                         "objects": ["voxel_id", "seg"],
@@ -268,20 +269,24 @@ class CitySampleBuildingDataset(CitySampleDataset):
             return None
 
         # NOTE: data["footprint_bboxes"] -> (dy, dx, h, w)
-        data["footprint_bboxes"] = self._get_building_stats(
+        data["footprint_bboxes"] = self._get_footprint_bboxes(
             footprint_bboxes, data["building_id"]
         )
         data["hf"] = self._get_hf_seg(
             "hf",
             rendering,
-            self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE + int(data["footprint_bboxes"][1]),
-            self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE + int(data["footprint_bboxes"][0]),
+            self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE // 2
+            + int(data["footprint_bboxes"][1]),
+            self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE // 2
+            + int(data["footprint_bboxes"][0]),
         )
         data["seg"] = self._get_hf_seg(
             "seg",
             rendering,
-            self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE + int(data["footprint_bboxes"][1]),
-            self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE + int(data["footprint_bboxes"][0]),
+            self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE // 2
+            + int(data["footprint_bboxes"][1]),
+            self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE // 2
+            + int(data["footprint_bboxes"][0]),
         )
         data = self.transforms(data)
         return data
@@ -326,7 +331,9 @@ class CitySampleBuildingDataset(CitySampleDataset):
         BLD_INS_LABEL_MAX = 5000
         N_MIN_PIXELS = 64
 
-        buliding_ids = np.unique(voxel_id[(voxel_id >= BLD_INS_LABEL_MIN) & (voxel_id < BLD_INS_LABEL_MAX)])
+        buliding_ids = np.unique(
+            voxel_id[(voxel_id >= BLD_INS_LABEL_MIN) & (voxel_id < BLD_INS_LABEL_MAX)]
+        )
         # NOTE: The facade instance IDs are multiple of 4.
         buliding_ids = buliding_ids[buliding_ids % 4 == 0]
         # Fix bld_idx in test mode

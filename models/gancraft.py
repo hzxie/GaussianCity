@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-12 19:53:21
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 11:27:44
+# @Last Modified at: 2024-01-09 16:04:02
 # @Email:  root@haozhexie.com
 # @Ref: https://github.com/FrozenBurning/SceneDreamer
 
@@ -64,7 +64,7 @@ class GanCraftGenerator(torch.nn.Module):
         depth2,
         raydirs,
         cam_origin,
-        building_stats=None,
+        footprint_bboxes=None,
         z=None,
         deterministic=False,
     ):
@@ -77,7 +77,7 @@ class GanCraftGenerator(torch.nn.Module):
             intersection.
             raydirs (N x H x W x 1 x 3 tensor): The direction of each ray.
             cam_origin (N x 3 tensor): Camera origins.
-            building_stats (N x 5 tensor): The dy, dx, h, w, ID of the target building. (Only used in building mode)
+            footprint_bboxes (N x 5 tensor): The dy, dx, h, w, ID of the target building. (Only used in building mode)
             z (N x STYLE_DIM tensor): The style vector.
             deterministic (bool): Whether to use equal-distance sampling instead of random stratified sampling.
         Returns:
@@ -103,7 +103,7 @@ class GanCraftGenerator(torch.nn.Module):
             raydirs,
             cam_origin,
             z,
-            building_stats,
+            footprint_bboxes,
             deterministic,
         )
         fake_images = self._forward_global(net_out, z)
@@ -117,7 +117,7 @@ class GanCraftGenerator(torch.nn.Module):
         raydirs,
         cam_origin,
         z,
-        building_stats=None,
+        footprint_bboxes=None,
         deterministic=False,
     ):
         r"""Sample points along rays, forwarding the per-point MLP and aggregate pixel features
@@ -129,7 +129,7 @@ class GanCraftGenerator(torch.nn.Module):
             raydirs (N x H x W x 1 x 3 tensor): The direction of each ray.
             cam_origin (N x 3 tensor): Camera origins.
             z (N x C3 tensor): Intermediate style vectors.
-            building_stats (N x 4 tensor): The dy, dx, h, w of the target building. (Only used in building mode)
+            footprint_bboxes (N x 4 tensor): The dy, dx, h, w of the target building. (Only used in building mode)
             deterministic (bool): Whether to use equal-distance sampling instead of random stratified sampling.
         """
         # Generate sky_mask; PE transform on ray direction.
@@ -145,7 +145,7 @@ class GanCraftGenerator(torch.nn.Module):
                 depth2,
                 raydirs,
                 cam_origin,
-                building_stats,
+                footprint_bboxes,
                 deterministic,
             )
             # Generate per-sample segmentation label
@@ -223,7 +223,7 @@ class GanCraftGenerator(torch.nn.Module):
         depth2,
         raydirs,
         cam_origin,
-        building_stats=None,
+        footprint_bboxes=None,
         deterministic=False,
     ):
         # Random sample points along the ray
@@ -240,16 +240,16 @@ class GanCraftGenerator(torch.nn.Module):
         world_coord = raydirs * rand_depth + cam_origin[:, None, None, None, :]
         # assert worldcoord2.shape[-1] == 3
         if self.cfg.NETWORK.GANCRAFT.BUILDING_MODE:
-            assert building_stats is not None
+            assert footprint_bboxes is not None
             # Make the building object-centric
-            building_stats = building_stats[:, None, None, None, :].repeat(
+            footprint_bboxes = footprint_bboxes[:, None, None, None, :].repeat(
                 1, world_coord.size(1), world_coord.size(2), world_coord.size(3), 1
             )
             world_coord[..., 0] -= (
-                building_stats[..., 0] + self.cfg.NETWORK.GANCRAFT.CENTER_OFFSET
+                footprint_bboxes[..., 0] + self.cfg.NETWORK.GANCRAFT.CENTER_OFFSET
             )
             world_coord[..., 1] -= (
-                building_stats[..., 1] + self.cfg.NETWORK.GANCRAFT.CENTER_OFFSET
+                footprint_bboxes[..., 1] + self.cfg.NETWORK.GANCRAFT.CENTER_OFFSET
             )
             # TODO: Fix non-building rays
             zero_rd_mask = raydirs.repeat(1, 1, 1, n_samples, 1)
