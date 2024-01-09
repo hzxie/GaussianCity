@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 14:44:12
+# @Last Modified at: 2024-01-09 15:36:45
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -28,6 +28,8 @@ cfg.DATASETS.CITY_SAMPLE.N_CITIES                = 5
 cfg.DATASETS.CITY_SAMPLE.N_VIEWS                 = 3000
 cfg.DATASETS.CITY_SAMPLE.CITY_STYLES             = ["Day"]
 cfg.DATASETS.CITY_SAMPLE_BUILDING                = EasyDict()
+cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID  = 7
+cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID    = 8
 cfg.DATASETS.CITY_SAMPLE_BUILDING.PIN_MEMORY     = ["hf", "seg"]
 cfg.DATASETS.CITY_SAMPLE_BUILDING.N_REPEAT       = 10
 cfg.DATASETS.CITY_SAMPLE_BUILDING.VOL_SIZE       = 672

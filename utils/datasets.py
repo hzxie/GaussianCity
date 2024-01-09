@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 10:44:32
+# @Last Modified at: 2024-01-09 15:36:40
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -137,7 +137,6 @@ class CitySampleDataset(torch.utils.data.Dataset):
         return (np.array(img) / 255.0 - 0.5) * 2
 
     def _get_data_transforms(self, cfg, split):
-        BULIDING_MASK_ID = 2
         if split == "train":
             return utils.transforms.Compose(
                 [
@@ -324,9 +323,10 @@ class CitySampleBuildingDataset(CitySampleDataset):
 
     def _get_rnd_building_id(self, voxel_id, seg_mask, rnd_mode=True, n_max_times=100):
         BLD_INS_LABEL_MIN = 100
+        BLD_INS_LABEL_MAX = 5000
         N_MIN_PIXELS = 64
 
-        buliding_ids = np.unique(voxel_id[voxel_id >= BLD_INS_LABEL_MIN])
+        buliding_ids = np.unique(voxel_id[(voxel_id >= BLD_INS_LABEL_MIN) & (voxel_id < BLD_INS_LABEL_MAX)])
         # NOTE: The facade instance IDs are multiple of 4.
         buliding_ids = buliding_ids[buliding_ids % 4 == 0]
         # Fix bld_idx in test mode
@@ -353,8 +353,6 @@ class CitySampleBuildingDataset(CitySampleDataset):
         return building_id if n_times < n_max_times else None
 
     def _get_footprint_bboxes(self, footprint_bboxes, building_id):
-        BLD_INS_LABEL_MIN = 100
-        assert building_id >= BLD_INS_LABEL_MIN
         # NOTE: 0 <= dx, dy < 1536, indicating the offsets between the building
         # and the image center.
         x, y, w, h = footprint_bboxes[building_id]
@@ -364,8 +362,6 @@ class CitySampleBuildingDataset(CitySampleDataset):
         return torch.Tensor([dy, dx, h, w, building_id])
 
     def _get_data_transforms(self, cfg, split):
-        BULIDING_FACADE_ID = 6
-        BULIDING_ROOF_ID = 7
         if split == "train":
             return utils.transforms.Compose(
                 [
@@ -373,8 +369,8 @@ class CitySampleBuildingDataset(CitySampleDataset):
                         "callback": "BuildingMaskRemap",
                         "parameters": {
                             "attr": "building_id",
-                            "bld_facade_label": BULIDING_FACADE_ID,
-                            "bld_roof_label": BULIDING_ROOF_ID,
+                            "bld_facade_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
+                            "bld_roof_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID,
                             "min_bld_ins_id": 10,
                         },
                         "objects": ["voxel_id", "seg"],
@@ -383,7 +379,10 @@ class CitySampleBuildingDataset(CitySampleDataset):
                         "callback": "MaskRaydirs",
                         "parameters": {
                             "attr": "raydirs",
-                            "values": [BULIDING_FACADE_ID, BULIDING_ROOF_ID],
+                            "values": [
+                                cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
+                                cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID,
+                            ],
                         },
                     },
                     {
@@ -391,7 +390,7 @@ class CitySampleBuildingDataset(CitySampleDataset):
                         "parameters": {
                             "height": cfg.TRAIN.GANCRAFT.CROP_SIZE[1],
                             "width": cfg.TRAIN.GANCRAFT.CROP_SIZE[0],
-                            "target_value": BULIDING_FACADE_ID,
+                            "target_value": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
                         },
                         "objects": ["voxel_id", "depth2", "raydirs", "footage", "mask"],
                     },
@@ -425,8 +424,8 @@ class CitySampleBuildingDataset(CitySampleDataset):
                         "callback": "BuildingMaskRemap",
                         "parameters": {
                             "attr": "building_id",
-                            "bld_facade_label": BULIDING_FACADE_ID,
-                            "bld_roof_label": BULIDING_ROOF_ID,
+                            "bld_facade_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
+                            "bld_roof_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID,
                             "min_bld_ins_id": 10,
                         },
                         "objects": ["voxel_id", "seg"],
@@ -435,7 +434,10 @@ class CitySampleBuildingDataset(CitySampleDataset):
                         "callback": "MaskRaydirs",
                         "parameters": {
                             "attr": "raydirs",
-                            "values": [BULIDING_FACADE_ID, BULIDING_ROOF_ID],
+                            "values": [
+                                cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
+                                cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID,
+                            ],
                         },
                     },
                     {
@@ -443,7 +445,7 @@ class CitySampleBuildingDataset(CitySampleDataset):
                         "parameters": {
                             "height": cfg.TRAIN.GANCRAFT.CROP_SIZE[1],
                             "width": cfg.TRAIN.GANCRAFT.CROP_SIZE[0],
-                            "target_value": BULIDING_FACADE_ID,
+                            "target_value": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
                         },
                         "objects": ["voxel_id", "depth2", "raydirs", "footage", "mask"],
                     },

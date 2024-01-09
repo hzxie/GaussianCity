@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 11:16:05
+# @Last Modified at: 2024-01-09 15:29:33
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -41,8 +41,8 @@ CONSTANTS = {
     "BLD_INS_MIN_ID": 100,
     "CAR_INS_MIN_ID": 5000,
     "CAR_CLS_ID": 3,
-    "BLD_FACADE_CLS_ID": 6,
-    "BLD_ROOF_CLS_ID": 7,
+    "BLD_FACADE_CLS_ID": 7,
+    "BLD_ROOF_CLS_ID": 8,
 }
 
 
@@ -53,11 +53,9 @@ def get_topdown_projection(points):
     #       car starts from 5000.
     #
     # Undefined: 0; Road: 1; Freeway: 2;
-    # Car: 3; Water: 4; Sky: 5; Others (Ground): 8;
-    # Building: 4n -> 6; Roof: 4n+1 -> 7
-    freeway_indexes = torch.isin(
-        points[:, 3], torch.tensor([2, 3], device=points.device)
-    )
+    # Car: 3; Water: 4; Sky: 5; Others (Ground): 6;
+    # Building: 4n -> 7; Roof: 4n+1 -> 8
+    freeway_indexes = torch.isin(points[:, 3], torch.tensor([2], device=points.device))
     freeways = points[torch.where(freeway_indexes)]
     # Volume without freeways
     points = points[torch.where(~freeway_indexes)]
@@ -219,7 +217,7 @@ def get_ray_voxel_intersection(cam_rig, cam_position, cam_look_at, volume):
 def get_ambiguous_seg_mask(voxel_id, est_seg_map):
     ins_seg_map = voxel_id.squeeze()[..., 0].copy()
     # NOTE: In ins_seg_map, 4n and 4n+1 denote building facade and roof, respectively.
-    #       In est_seg_map, 6 and 7 denote building facade and roof, respectively.
+    #       In est_seg_map, 7 and 8 denote building facade and roof, respectively.
     ins_seg_map[ins_seg_map >= CONSTANTS["CAR_INS_MIN_ID"]] = CONSTANTS["CAR_CLS_ID"]
     ins_seg_map[
         (ins_seg_map >= CONSTANTS["BLD_INS_MIN_ID"]) & (ins_seg_map % 4 == 0)

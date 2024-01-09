@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 14:39:33
+# @Last Modified at: 2024-01-09 15:15:23
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -50,9 +50,9 @@ def get_seg_map_palette():
             [0, 96, 0],      # car          -> green
             [0, 96, 96],     # water        -> cyan
             [0, 0, 96],      # sky          -> blue
+            [96, 96, 96],    # ground       -> gray
             [96, 0, 96],     # building     -> magenta
             [255, 0, 255],   # bldg. roof   -> lime yellow
-            [96, 96, 96],    # ground       -> gray
         ]
     )
     # fmt: on

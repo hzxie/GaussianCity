@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-25 15:52:37
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 14:59:19
+# @Last Modified at: 2024-01-09 15:14:51
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -26,15 +26,17 @@ import utils.helpers
 
 def get_discrete_seg_maps(img):
     CLASSES = {
-        "Undefined": torch.tensor([255, 255, 255], dtype=torch.int16, device=img.device),
+        "Undefined": torch.tensor(
+            [255, 255, 255], dtype=torch.int16, device=img.device
+        ),
         "Road": torch.tensor([255, 84, 50], dtype=torch.int16, device=img.device),
         "Freeway": torch.tensor([230, 235, 90], dtype=torch.int16, device=img.device),
         "Car": torch.tensor([60, 230, 110], dtype=torch.int16, device=img.device),
         "Water": torch.tensor([140, 230, 230], dtype=torch.int16, device=img.device),
         "Sky": torch.tensor([0, 0, 0], dtype=torch.int16, device=img.device),
+        "Ground": torch.tensor([90, 110, 240], dtype=torch.int16, device=img.device),
         "Building": torch.tensor([180, 140, 30], dtype=torch.int16, device=img.device),
         "Roof": torch.tensor([250, 150, 240], dtype=torch.int16, device=img.device),
-        "Ground": torch.tensor([90, 110, 240], dtype=torch.int16, device=img.device),
     }
     h, w, _ = img.shape
     dists = torch.zeros((h, w, len(CLASSES)))

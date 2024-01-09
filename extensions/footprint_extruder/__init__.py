@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-23 11:30:15
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2023-12-25 11:19:23
+# @Last Modified at: 2024-01-09 15:04:10
 # @Email:  root@haozhexie.com
 
 import torch
@@ -15,7 +15,7 @@ import footprint_extruder_ext
 class FootprintExtruder(torch.nn.Module):
     def __init__(
         self,
-        l1_height=5,
+        l1_height=0,
         roof_height=1,
         l1_id_offset=0,
         roof_id_offset=1,
