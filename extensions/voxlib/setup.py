@@ -15,8 +15,9 @@ setup(
         CUDAExtension(
             "voxlib",
             [
-                "voxlib.cpp",
+                "bindings.cpp",
                 "ray_voxel_intersection.cu",
+                "positional_encoding_kernel.cu",
             ],
             extra_compile_args={"cxx": cxx_args, "nvcc": nvcc_args},
         )
