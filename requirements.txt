@@ -1,5 +1,11 @@
-scipy
+easydict
 numpy
 opencv-python
 pillow
+pynvml
+scipy
+tensorboard
+torch
+torchvision
 tqdm
+wandb
