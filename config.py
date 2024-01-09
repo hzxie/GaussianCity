@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 11:30:28
+# @Last Modified at: 2024-01-09 14:44:12
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -23,7 +23,7 @@ cfg.DATASETS.CITY_SAMPLE.PIN_MEMORY              = ["hf", "seg"]
 cfg.DATASETS.CITY_SAMPLE.DIR                     = "./data"
 cfg.DATASETS.CITY_SAMPLE.VOL_SIZE                = 1536
 cfg.DATASETS.CITY_SAMPLE.MAX_HEIGHT              = 384
-cfg.DATASETS.CITY_SAMPLE.N_REPEAT                = 10
+cfg.DATASETS.CITY_SAMPLE.N_REPEAT                = 1
 cfg.DATASETS.CITY_SAMPLE.N_CITIES                = 5
 cfg.DATASETS.CITY_SAMPLE.N_VIEWS                 = 3000
 cfg.DATASETS.CITY_SAMPLE.CITY_STYLES             = ["Day"]
@@ -60,7 +60,7 @@ cfg.MEMCACHED.CLIENT_CONFIG                      = "/mnt/lustre/share/memcached_
 #
 cfg.WANDB                                        = EasyDict()
 cfg.WANDB.ENABLED                                = False
-cfg.WANDB.PROJECT                                = "City-Gen"
+cfg.WANDB.PROJECT                                = "City-Gen-HD"
 cfg.WANDB.ENTITY                                 = "haozhexie"
 cfg.WANDB.MODE                                   = "online"
 cfg.WANDB.RUN_ID                                 = None

@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2023-12-26 16:30:45
+# @Last Modified at: 2024-01-09 14:39:33
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -61,7 +61,7 @@ def get_seg_map_palette():
 
 @static_vars(palatte=get_seg_map_palette())
 def get_seg_map(seg_map):
-    if np.max(seg_map) >= 7:
+    if np.max(seg_map) >= 9:
         return get_ins_seg_map(seg_map)
 
     seg_map = Image.fromarray(seg_map.astype(np.uint8))

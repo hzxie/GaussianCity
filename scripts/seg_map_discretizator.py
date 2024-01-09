@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-25 15:52:37
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2023-12-26 16:19:11
+# @Last Modified at: 2024-01-09 14:40:42
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -45,7 +45,7 @@ def get_discrete_seg_maps(img):
 
 
 def main(input_dir, output_dir):
-    images = sorted(os.listdir(input_dir))
+    images = sorted([f for f in os.listdir(input_dir) if f.endswith(".jpeg")])
     os.makedirs(output_dir, exist_ok=True)
     for i in tqdm(images):
         img = Image.open(os.path.join(input_dir, i))
