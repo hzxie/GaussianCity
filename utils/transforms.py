@@ -107,6 +107,11 @@ class RandomCrop(object):
     def __init__(self, parameters, objects):
         self.height = parameters["height"]
         self.width = parameters["width"]
+        self.key = parameters["key"] if "key" in parameters else None
+        self.values = parameters["values"] if "values" in parameters else []
+        self.n_min_pixels = (
+            parameters["n_min_pixels"] if "n_min_pixels" in parameters else 0
+        )
         self.objects = objects
 
     def _crop(self, img, offset_x, offset_y):
@@ -117,10 +122,24 @@ class RandomCrop(object):
         return new_img
 
     def __call__(self, data):
+        N_MAX_TRY_TIMES = 100
         img = data[self.objects[0]]
         h, w = img.shape[0], img.shape[1]
-        offset_x = random.randint(0, w - self.width)
-        offset_y = random.randint(0, h - self.height)
+
+        # Check the cropped patch contains enough informative pixels for training
+        n_try_times = 0
+        while n_try_times < N_MAX_TRY_TIMES:
+            n_try_times += 1
+            offset_x = random.randint(0, w - self.width)
+            offset_y = random.randint(0, h - self.height)
+            if self.key is None:
+                break
+            patch = self._crop(data[self.key], offset_x, offset_y)
+            n_pixels = np.count_nonzero(np.isin(patch, self.values))
+            if n_pixels >= self.n_min_pixels:
+                break
+
+        # Crop all data fields simultaneously
         for k, v in data.items():
             if k in self.objects:
                 data[k] = self._crop(v, offset_x, offset_y)
@@ -177,29 +196,40 @@ class CenterCropTarget(RandomCropTarget):
 class BuildingMaskRemap(object):
     def __init__(self, parameters, objects):
         self.attr = parameters["attr"] if "attr" in parameters else None
-        self.bld_facade_label = parameters["bld_facade_label"]
-        self.bld_roof_label = parameters["bld_roof_label"]
-        self.min_bld_ins_id = parameters["min_bld_ins_id"]
+        self.bldg_facade_label = parameters["bldg_facade_label"]
+        self.bldg_roof_label = parameters["bldg_roof_label"]
+        self.bldg_ins_range = parameters["bldg_ins_range"]
         self.objects = objects
 
     def _building_mask_remap(self, seg_map, value_map):
+        rest_bldg_ins = 0
         if value_map is not None:
+            # BLDG MODE
+            # value_map maps specific building instance to its semantic label
             for src, dst in value_map.items():
                 seg_map[seg_map == src] = dst
+        else:
+            # BG MODE
+            rest_bldg_ins = self.bldg_facade_label
 
-        seg_map[seg_map >= self.min_bld_ins_id] = 0
+        # The other building instances are mapping to rest_bldg_ins
+        # rest_bldg_ins is set to building facade sementic label in BG mode,
+        # it is set to NULL in BLDG mode.
+        seg_map[
+            (seg_map >= self.bldg_ins_range[0]) & (seg_map < self.bldg_ins_range[1])
+        ] = rest_bldg_ins
         return seg_map
 
     def __call__(self, data):
         for k, v in data.items():
             if k in self.objects:
-                bld_ins_id = data[self.attr] if self.attr in data else None
+                bldg_ins_id = data[self.attr] if self.attr in data else None
                 value_map = (
                     {
-                        bld_ins_id: self.bld_facade_label,
-                        bld_ins_id - 1: self.bld_roof_label,
+                        bldg_ins_id: self.bldg_facade_label,
+                        bldg_ins_id + 1: self.bldg_roof_label,
                     }
-                    if bld_ins_id is not None
+                    if bldg_ins_id is not None
                     else None
                 )
                 data[k] = self._building_mask_remap(

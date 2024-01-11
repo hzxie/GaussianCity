@@ -18,20 +18,23 @@ cfg                                             = __C
 #
 cfg.DATASETS                                     = EasyDict()
 cfg.DATASETS.CITY_SAMPLE                         = EasyDict()
-cfg.DATASETS.CITY_SAMPLE.N_CLASSES               = 9
-cfg.DATASETS.CITY_SAMPLE.PIN_MEMORY              = ["hf", "seg"]
 cfg.DATASETS.CITY_SAMPLE.DIR                     = "./data"
+cfg.DATASETS.CITY_SAMPLE.PIN_MEMORY              = ["hf", "seg"]
+cfg.DATASETS.CITY_SAMPLE.N_REPEAT                = 1
+cfg.DATASETS.CITY_SAMPLE.N_CLASSES               = 9
+cfg.DATASETS.CITY_SAMPLE.N_MIN_PIXELS            = 64
 cfg.DATASETS.CITY_SAMPLE.VOL_SIZE                = 1536
 cfg.DATASETS.CITY_SAMPLE.MAX_HEIGHT              = 384
-cfg.DATASETS.CITY_SAMPLE.N_REPEAT                = 1
 cfg.DATASETS.CITY_SAMPLE.N_CITIES                = 5
 cfg.DATASETS.CITY_SAMPLE.N_VIEWS                 = 3000
 cfg.DATASETS.CITY_SAMPLE.CITY_STYLES             = ["Day"]
 cfg.DATASETS.CITY_SAMPLE_BUILDING                = EasyDict()
+cfg.DATASETS.CITY_SAMPLE_BUILDING.PIN_MEMORY     = ["hf", "seg", "footprint_bboxes"]
+cfg.DATASETS.CITY_SAMPLE_BUILDING.N_REPEAT       = 1
+cfg.DATASETS.CITY_SAMPLE_BUILDING.N_MIN_PIXELS   = 64
 cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID  = 7
 cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID    = 8
-cfg.DATASETS.CITY_SAMPLE_BUILDING.PIN_MEMORY     = ["hf", "seg", "footprint_bboxes"]
-cfg.DATASETS.CITY_SAMPLE_BUILDING.N_REPEAT       = 10
+cfg.DATASETS.CITY_SAMPLE_BUILDING.INS_ID_RANGE   = [100, 5000]
 cfg.DATASETS.CITY_SAMPLE_BUILDING.VOL_SIZE       = 672
 
 #
@@ -123,7 +126,7 @@ cfg.TRAIN.GANCRAFT.DISCRIMINATOR_N_WARMUP_ITERS  = 100000
 cfg.TRAIN.GANCRAFT.EPS                           = 1e-7
 cfg.TRAIN.GANCRAFT.WEIGHT_DECAY                  = 0
 cfg.TRAIN.GANCRAFT.BETAS                         = (0., 0.999)
-cfg.TRAIN.GANCRAFT.CROP_SIZE                     = (192, 192)
+cfg.TRAIN.GANCRAFT.CROP_SIZE                     = (192, 192) if cfg.NETWORK.GANCRAFT.BUILDING_MODE else (128, 128)
 cfg.TRAIN.GANCRAFT.PERCEPTUAL_LOSS_MODEL         = "vgg19"
 cfg.TRAIN.GANCRAFT.PERCEPTUAL_LOSS_LAYERS        = ["relu_3_1", "relu_4_1", "relu_5_1"]
 cfg.TRAIN.GANCRAFT.PERCEPTUAL_LOSS_WEIGHTS       = [0.125, 0.25, 1.0]

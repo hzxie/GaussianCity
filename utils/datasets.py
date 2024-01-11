@@ -156,6 +156,17 @@ class CitySampleDataset(torch.utils.data.Dataset):
                         "parameters": {
                             "height": cfg.TRAIN.GANCRAFT.CROP_SIZE[1],
                             "width": cfg.TRAIN.GANCRAFT.CROP_SIZE[0],
+                            "key": "voxel_id",
+                            "values": [
+                                i
+                                for i in range(cfg.DATASETS.CITY_SAMPLE.N_CLASSES)
+                                if i
+                                not in [
+                                    cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
+                                    cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID,
+                                ]
+                            ],
+                            "n_min_pixels": cfg.DATASETS.CITY_SAMPLE.N_MIN_PIXELS,
                         },
                         "objects": ["voxel_id", "depth2", "raydirs", "footage", "mask"],
                     },
@@ -163,9 +174,9 @@ class CitySampleDataset(torch.utils.data.Dataset):
                         "callback": "BuildingMaskRemap",
                         # NOTE: Map both facade and roof to facade (in BG mode).
                         "parameters": {
-                            "bld_facade_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
-                            "bld_roof_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
-                            "min_bld_ins_id": 10,
+                            "bldg_facade_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
+                            "bldg_roof_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
+                            "bldg_ins_range": cfg.DATASETS.CITY_SAMPLE_BUILDING.INS_ID_RANGE,
                         },
                         "objects": ["voxel_id", "seg"],
                     },
@@ -205,10 +216,11 @@ class CitySampleDataset(torch.utils.data.Dataset):
                     },
                     {
                         "callback": "BuildingMaskRemap",
+                        # NOTE: Map both facade and roof to facade (in BG mode).
                         "parameters": {
-                            "bld_facade_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
-                            "bld_roof_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
-                            "min_bld_ins_id": 10,
+                            "bldg_facade_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
+                            "bldg_roof_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
+                            "bldg_ins_range": cfg.DATASETS.CITY_SAMPLE_BUILDING.INS_ID_RANGE,
                         },
                         "objects": ["voxel_id", "seg"],
                     },
@@ -332,33 +344,35 @@ class CitySampleBuildingDataset(CitySampleDataset):
         return pad_img
 
     def _get_rnd_building_id(self, voxel_id, seg_mask, rnd_mode=True, n_max_times=100):
-        BLD_INS_LABEL_MIN = 100
-        BLD_INS_LABEL_MAX = 5000
-        N_MIN_PIXELS = 64
-
         buliding_ids = np.unique(
-            voxel_id[(voxel_id >= BLD_INS_LABEL_MIN) & (voxel_id < BLD_INS_LABEL_MAX)]
+            voxel_id[
+                (voxel_id >= self.cfg.DATASETS.CITY_SAMPLE_BUILDING.INS_ID_RANGE[0])
+                & (voxel_id < self.cfg.DATASETS.CITY_SAMPLE_BUILDING.INS_ID_RANGE[1])
+            ]
         )
         # NOTE: The facade instance IDs are multiple of 4.
         buliding_ids = buliding_ids[buliding_ids % 4 == 0]
-        # Fix bld_idx in test mode
+        # Fix bldg_idx in test mode
         n_bulidings = len(buliding_ids)
         # Fix a bug causes empty range for randrange() (0, 0, 0) for random.randint()
         if n_bulidings == 0:
             return None
 
-        bld_idx = n_bulidings // 4
+        bldg_idx = n_bulidings // 4
         # Make sure that the building contains unambiguous pixels
         n_times = 0
         while n_times < n_max_times:
             n_times += 1
             if rnd_mode:
-                bld_idx = random.randint(0, n_bulidings - 1)
+                bldg_idx = random.randint(0, n_bulidings - 1)
             else:
-                bld_idx += 1
+                bldg_idx += 1
 
-            building_id = buliding_ids[bld_idx % n_bulidings]
-            if np.count_nonzero(seg_mask[voxel_id == building_id]) >= N_MIN_PIXELS:
+            building_id = buliding_ids[bldg_idx % n_bulidings]
+            if (
+                np.count_nonzero(seg_mask[voxel_id == building_id])
+                >= self.cfg.DATASETS.CITY_SAMPLE_BUILDING.N_MIN_PIXELS
+            ):
                 break
 
         assert building_id % 4 == 0, "Building instance ID MUST BE an even number."
@@ -381,9 +395,9 @@ class CitySampleBuildingDataset(CitySampleDataset):
                         "callback": "BuildingMaskRemap",
                         "parameters": {
                             "attr": "building_id",
-                            "bld_facade_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
-                            "bld_roof_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID,
-                            "min_bld_ins_id": 10,
+                            "bldg_facade_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
+                            "bldg_roof_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID,
+                            "bldg_ins_range": cfg.DATASETS.CITY_SAMPLE_BUILDING.INS_ID_RANGE,
                         },
                         "objects": ["voxel_id", "seg"],
                     },
@@ -436,9 +450,9 @@ class CitySampleBuildingDataset(CitySampleDataset):
                         "callback": "BuildingMaskRemap",
                         "parameters": {
                             "attr": "building_id",
-                            "bld_facade_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
-                            "bld_roof_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID,
-                            "min_bld_ins_id": 10,
+                            "bldg_facade_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
+                            "bldg_roof_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID,
+                            "bldg_ins_range": cfg.DATASETS.CITY_SAMPLE_BUILDING.INS_ID_RANGE,
                         },
                         "objects": ["voxel_id", "seg"],
                     },
