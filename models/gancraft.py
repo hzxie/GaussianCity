@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-12 19:53:21
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-22 11:01:30
+# @Last Modified at: 2024-01-22 19:51:06
 # @Email:  root@haozhexie.com
 # @Ref: https://github.com/FrozenBurning/SceneDreamer
 
@@ -186,19 +186,10 @@ class GanCraftGenerator(torch.nn.Module):
         # Sky dome
         sky_weight, rgbs_sky = 0, 0
         if not self.cfg.NETWORK.GANCRAFT.BUILDING_MODE:
-            sky_raydirs_in = raydirs.expand(-1, -1, -1, 1, -1).contiguous()
-            # print(sky_raydirs_in.size())    # torch.Size([N, H, W, 1, 3])
-            sky_raydirs_in = extensions.voxlib.positional_encoding(
-                sky_raydirs_in,
-                self.cfg.NETWORK.GANCRAFT.SKY_POS_EMD_LEVEL_RAYDIR,
-                -1,
-                self.cfg.NETWORK.GANCRAFT.SKY_POS_EMD_INCLUDE_RAYDIR,
-            )
-            # print(sky_raydirs_in.size())  # torch.Size([N, H, W, 1, 33])
-            skynet_out_c = self.sky_net(sky_raydirs_in)
-            # print(skynet_out_c.size())    # torch.Size([N, H, W, 1, 3])
-            # Avoid sky leakage
-            sky_avg = torch.mean(skynet_out_c, dim=[1, 2], keepdim=True)
+            skynet_out_c, sky_avg = self.get_sky(raydirs)
+            if self.cfg.NETWORK.GANCRAFT.SKY_GLOBAL_AVGPOOL:
+                sky_avg = self.sky_avg
+
             non_sky_mask = torch.logical_not(sky_mask).float()
             skynet_out_c = skynet_out_c * (1.0 - non_sky_mask) + sky_avg * (
                 non_sky_mask
@@ -216,6 +207,22 @@ class GanCraftGenerator(torch.nn.Module):
         net_out = net_out.squeeze(-2)
         net_out = net_out - 1
         return net_out
+
+    def get_sky(self, raydirs):
+        sky_raydirs_in = raydirs.expand(-1, -1, -1, 1, -1).contiguous()
+        # print(sky_raydirs_in.size())    # torch.Size([N, H, W, 1, 3])
+        sky_raydirs_in = extensions.voxlib.positional_encoding(
+            sky_raydirs_in,
+            self.cfg.NETWORK.GANCRAFT.SKY_POS_EMD_LEVEL_RAYDIR,
+            -1,
+            self.cfg.NETWORK.GANCRAFT.SKY_POS_EMD_INCLUDE_RAYDIR,
+        )
+        # print(sky_raydirs_in.size())  # torch.Size([N, H, W, 1, 33])
+        skynet_out_c = self.sky_net(sky_raydirs_in)
+        # print(skynet_out_c.size())    # torch.Size([N, H, W, 1, 3])
+        # Avoid sky leakage
+        sky_avg = torch.mean(skynet_out_c, dim=[1, 2], keepdim=True)
+        return skynet_out_c, sky_avg
 
     def _get_sampled_coordinates(
         self,
@@ -332,7 +339,7 @@ class GanCraftGenerator(torch.nn.Module):
 
         rand_samples = rand_samples * total_depth
         # print(rand_samples.size())  # torch.Size([N, H, W, n_samples, 1])
-        
+
         # Can also include boundaries
         if use_box_boundaries:
             rand_samples = torch.cat(

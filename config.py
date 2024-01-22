@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 18:24:17
+# @Last Modified at: 2024-01-22 19:56:07
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -102,6 +102,7 @@ cfg.NETWORK.GANCRAFT.HASH_GRID_RESOLUTION        = (cfg.DATASETS.CITY_SAMPLE_BUI
 cfg.NETWORK.GANCRAFT.SIN_COS_FREQ_BENDS          = 10
 cfg.NETWORK.GANCRAFT.SKY_HIDDEN_DIM              = 256
 cfg.NETWORK.GANCRAFT.SKY_OUT_DIM_COLOR           = 64
+cfg.NETWORK.GANCRAFT.SKY_GLOBAL_AVGPOOL          = False
 cfg.NETWORK.GANCRAFT.RENDER_HIDDEN_DIM           = 256
 cfg.NETWORK.GANCRAFT.RENDER_OUT_DIM_SIGMA        = 1
 cfg.NETWORK.GANCRAFT.RENDER_OUT_DIM_COLOR        = 64

@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-01-18 11:45:08
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-22 10:39:51
+# @Last Modified at: 2024-01-22 19:55:42
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -29,8 +29,8 @@ import scripts.dataset_generator
 import utils.helpers
 
 CONSTANTS = {
-    "IMAGE_WIDTH": 1920,
-    "IMAGE_HEIGHT": 1080,
+    "IMAGE_WIDTH": 960,
+    "IMAGE_HEIGHT": 540,
     "IMAGE_PADDING": 8,
     "LAYOUT_MAX_HEIGHT": 384,
     "LAYOUT_N_CLASSES": 9,
@@ -51,6 +51,8 @@ def get_models(gancraft_bg_ckpt, gancraft_fg_ckpt):
     gancraft_bg_ckpt = torch.load(gancraft_bg_ckpt)
     gancraft_fg_ckpt = torch.load(gancraft_fg_ckpt)
 
+    # Use global avgpool for sky to get a consistent sky in the semi-transparent region
+    gancraft_bg_ckpt["cfg"].NETWORK.GANCRAFT.SKY_GLOBAL_AVGPOOL = True
     # Initialize models
     gancraft_bg = models.gancraft.GanCraftGenerator(gancraft_bg_ckpt["cfg"])
     gancraft_fg = models.gancraft.GanCraftGenerator(gancraft_fg_ckpt["cfg"])
@@ -141,10 +143,11 @@ def render_bg(
         dtype=torch.float32,
         device=gancraft_bg.output_device,
     )
+    # Precompute the global consist sky in the semi-transparent region
+    _, gancraft_bg.module.sky_avg = gancraft_bg.module.get_sky(raydirs)
     # Render background patches by patch to avoid OOM
     for i in range(CONSTANTS["IMAGE_HEIGHT"] // patch_size[0]):
         for j in range(CONSTANTS["IMAGE_WIDTH"] // patch_size[1]):
-            print("bg", i, j)
             sy, sx = i * patch_size[0], j * patch_size[1]
             ey, ex = sy + patch_size[0], sx + patch_size[1]
             psx, pex, psy, pey = get_pad_img_bbox(sx, ex, sy, ey)
@@ -240,11 +243,9 @@ def render_fg(
     # Render foreground patches by patch to avoid OOM
     for i in range(CONSTANTS["IMAGE_HEIGHT"] // patch_size[0]):
         for j in range(CONSTANTS["IMAGE_WIDTH"] // patch_size[1]):
-            print("fg", i, j)
             sy, sx = i * patch_size[0], j * patch_size[1]
             ey, ex = sy + patch_size[0], sx + patch_size[1]
             psx, pex, psy, pey = get_pad_img_bbox(sx, ex, sy, ey)
-
             if torch.count_nonzero(_raydirs[:, sy:ey, sx:ex]) > 0:
                 output_fg = gancraft_fg(
                     _hf_seg,
@@ -262,7 +263,7 @@ def render_fg(
                     voxel_id[:, sy:ey, sx:ex, 0, 0] == building_id
                 ).unsqueeze(dim=1)
                 roof_mask = (
-                    voxel_id[:, sy:ey, sx:ex, 0, 0] == building_id - 1
+                    voxel_id[:, sy:ey, sx:ex, 0, 0] == building_id + 1
                 ).unsqueeze(dim=1)
                 facade_img = facade_mask * get_img_without_pad(
                     output_fg, sx, ex, sy, ey, psx, pex, psy, pey
@@ -385,6 +386,12 @@ def main(patch_size, output_file, gancraft_bg_ckpt, gancraft_fg_ckpt):
     with open(os.path.join(PROJECT_HOME, "data", city_name, "CameraRig.json")) as fp:
         cam_rig = json.load(fp)
         cam_rig = cam_rig["cameras"]["CameraComponent"]
+        cam_rig["sensor_size"] = [CONSTANTS["IMAGE_WIDTH"], CONSTANTS["IMAGE_HEIGHT"]]
+        # To render 960x540 images
+        cam_rig["intrinsics"][0] /= 1920 / CONSTANTS["IMAGE_WIDTH"]
+        cam_rig["intrinsics"][4] /= 1080 / CONSTANTS["IMAGE_HEIGHT"]
+        cam_rig["intrinsics"][2] = CONSTANTS["IMAGE_WIDTH"]
+        cam_rig["intrinsics"][5] = CONSTANTS["IMAGE_HEIGHT"]
 
     cam_poses = []
     with open(os.path.join(PROJECT_HOME, "data", city_name, "CameraPoses.csv")) as fp:
@@ -396,7 +403,7 @@ def main(patch_size, output_file, gancraft_bg_ckpt, gancraft_fg_ckpt):
 
     logging.info("Rendering videos ...")
     frames = []
-    for cam_pose in tqdm(cam_poses):
+    for f_idx, cam_pose in enumerate(tqdm(cam_poses)):
         img = render(
             patch_size,
             seg_volume,
@@ -411,7 +418,8 @@ def main(patch_size, output_file, gancraft_bg_ckpt, gancraft_fg_ckpt):
         )
         img = (utils.helpers.tensor_to_image(img, "RGB") * 255).astype(np.uint8)
         frames.append(img[..., ::-1])
-        cv2.imwrite("output/test.jpg", img[..., ::-1])
+        # cv2.imwrite("output/test.jpg", img[..., ::-1])
+        cv2.imwrite("output/render/%04d.jpg" % f_idx, img[..., ::-1])
 
     get_video(frames, output_file)
 
@@ -432,12 +440,12 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--patch_height",
-        default=CONSTANTS["IMAGE_HEIGHT"] // 10,
+        default=CONSTANTS["IMAGE_HEIGHT"] // 4,
         type=int,
     )
     parser.add_argument(
         "--patch_width",
-        default=CONSTANTS["IMAGE_WIDTH"] // 10,
+        default=CONSTANTS["IMAGE_WIDTH"] // 4,
         type=int,
     )
     parser.add_argument(
