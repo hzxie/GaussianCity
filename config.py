@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-22 19:56:07
+# @Last Modified at: 2024-01-22 20:02:27
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -18,20 +18,23 @@ cfg                                             = __C
 #
 cfg.DATASETS                                     = EasyDict()
 cfg.DATASETS.CITY_SAMPLE                         = EasyDict()
-cfg.DATASETS.CITY_SAMPLE.N_CLASSES               = 9
-cfg.DATASETS.CITY_SAMPLE.PIN_MEMORY              = ["hf", "seg"]
 cfg.DATASETS.CITY_SAMPLE.DIR                     = "./data"
+cfg.DATASETS.CITY_SAMPLE.PIN_MEMORY              = ["hf", "seg"]
+cfg.DATASETS.CITY_SAMPLE.N_REPEAT                = 1
+cfg.DATASETS.CITY_SAMPLE.N_CLASSES               = 9
+cfg.DATASETS.CITY_SAMPLE.N_MIN_PIXELS            = 64
 cfg.DATASETS.CITY_SAMPLE.VOL_SIZE                = 1536
 cfg.DATASETS.CITY_SAMPLE.MAX_HEIGHT              = 384
-cfg.DATASETS.CITY_SAMPLE.N_REPEAT                = 1
 cfg.DATASETS.CITY_SAMPLE.N_CITIES                = 5
 cfg.DATASETS.CITY_SAMPLE.N_VIEWS                 = 3000
 cfg.DATASETS.CITY_SAMPLE.CITY_STYLES             = ["Day"]
 cfg.DATASETS.CITY_SAMPLE_BUILDING                = EasyDict()
+cfg.DATASETS.CITY_SAMPLE_BUILDING.PIN_MEMORY     = ["hf", "seg", "footprint_bboxes"]
+cfg.DATASETS.CITY_SAMPLE_BUILDING.N_REPEAT       = 1
+cfg.DATASETS.CITY_SAMPLE_BUILDING.N_MIN_PIXELS   = 64
 cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID  = 7
 cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID    = 8
-cfg.DATASETS.CITY_SAMPLE_BUILDING.PIN_MEMORY     = ["hf", "seg", "footprint_bboxes"]
-cfg.DATASETS.CITY_SAMPLE_BUILDING.N_REPEAT       = 10
+cfg.DATASETS.CITY_SAMPLE_BUILDING.INS_ID_RANGE   = [100, 5000]
 cfg.DATASETS.CITY_SAMPLE_BUILDING.VOL_SIZE       = 672
 
 #
@@ -78,20 +81,20 @@ cfg.NETWORK.GANCRAFT.BUILDING_MODE               = False
 cfg.NETWORK.GANCRAFT.N_CLASSES                   = cfg.DATASETS.CITY_SAMPLE.N_CLASSES
 cfg.NETWORK.GANCRAFT.FACADE_CLS_ID               = cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID
 cfg.NETWORK.GANCRAFT.ROOF_CLS_ID                 = cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID
-cfg.NETWORK.GANCRAFT.STYLE_DIM                   = 256
+cfg.NETWORK.GANCRAFT.STYLE_DIM                   = 256 if cfg.NETWORK.GANCRAFT.BUILDING_MODE else None
 cfg.NETWORK.GANCRAFT.N_SAMPLE_POINTS_PER_RAY     = 24
 cfg.NETWORK.GANCRAFT.DIST_SCALE                  = 0.25
 cfg.NETWORK.GANCRAFT.CENTER_OFFSET               = (cfg.DATASETS.CITY_SAMPLE.VOL_SIZE - cfg.DATASETS.CITY_SAMPLE_BUILDING.VOL_SIZE) / 2
 cfg.NETWORK.GANCRAFT.NORMALIZE_DELIMETER         = ([cfg.DATASETS.CITY_SAMPLE_BUILDING.VOL_SIZE,] * 2 
                                                     if cfg.NETWORK.GANCRAFT.BUILDING_MODE 
                                                     else [cfg.DATASETS.CITY_SAMPLE.VOL_SIZE,] * 2) + [cfg.DATASETS.CITY_SAMPLE.MAX_HEIGHT]
-cfg.NETWORK.GANCRAFT.ENCODER                     = "LOCAL"
+cfg.NETWORK.GANCRAFT.ENCODER                     = "LOCAL" if cfg.NETWORK.GANCRAFT.BUILDING_MODE else "GLOBAL"
 cfg.NETWORK.GANCRAFT.ENCODER_OUT_DIM             = 64 if cfg.NETWORK.GANCRAFT.BUILDING_MODE else 32
 cfg.NETWORK.GANCRAFT.GLOBAL_ENCODER_N_BLOCKS     = 6
 cfg.NETWORK.GANCRAFT.LOCAL_ENCODER_NORM          = "GROUP_NORM"
 cfg.NETWORK.GANCRAFT.SKY_POS_EMD_LEVEL_RAYDIR    = 5
 cfg.NETWORK.GANCRAFT.SKY_POS_EMD_INCLUDE_RAYDIR  = True
-cfg.NETWORK.GANCRAFT.POS_EMD                     = "SIN_COS"
+cfg.NETWORK.GANCRAFT.POS_EMD                     = "SIN_COS" if cfg.NETWORK.GANCRAFT.BUILDING_MODE else "HASH_GRID"
 cfg.NETWORK.GANCRAFT.POS_EMD_INCUDE_FEATURES     = True
 cfg.NETWORK.GANCRAFT.POS_EMD_INCUDE_CORDS        = False
 cfg.NETWORK.GANCRAFT.HASH_GRID_N_LEVELS          = 16

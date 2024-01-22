@@ -41,6 +41,7 @@ CONSTANTS = {
     "BLD_INS_MIN_ID": 100,
     "CAR_INS_MIN_ID": 5000,
     "CAR_CLS_ID": 3,
+    "SKY_CLS_ID": 5,
     "BLD_FACADE_CLS_ID": 7,
     "BLD_ROOF_CLS_ID": 8,
 }
@@ -216,6 +217,9 @@ def get_ray_voxel_intersection(cam_rig, cam_position, cam_look_at, volume):
         [cam_rig["sensor_size"][1], cam_rig["sensor_size"][0]],
         N_MAX_SAMPLES,
     )
+    # Bug Fix: Map NULL voxels to SKY
+    voxel_id[voxel_id == 0] = CONSTANTS["SKY_CLS_ID"]
+
     return {
         "voxel_id": voxel_id,
         "depth2": depth2,
