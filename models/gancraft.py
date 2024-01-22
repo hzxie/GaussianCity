@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-12 19:53:21
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 16:04:02
+# @Last Modified at: 2024-01-22 11:01:30
 # @Email:  root@haozhexie.com
 # @Ref: https://github.com/FrozenBurning/SceneDreamer
 
@@ -231,7 +231,7 @@ class GanCraftGenerator(torch.nn.Module):
             depth2,
             n_samples + 1,
             deterministic=deterministic,
-            use_box_boundaries=deterministic,
+            use_box_boundaries=False,
             sample_depth=3,
         )
         nan_mask = torch.isnan(rand_depth)
@@ -332,7 +332,7 @@ class GanCraftGenerator(torch.nn.Module):
 
         rand_samples = rand_samples * total_depth
         # print(rand_samples.size())  # torch.Size([N, H, W, n_samples, 1])
-
+        
         # Can also include boundaries
         if use_box_boundaries:
             rand_samples = torch.cat(

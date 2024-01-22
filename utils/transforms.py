@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 14:18:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2023-06-15 15:28:43
+# @Last Modified at: 2024-01-09 19:42:33
 # @Email:  root@haozhexie.com
 
 import cv2
@@ -197,7 +197,7 @@ class BuildingMaskRemap(object):
                 value_map = (
                     {
                         bld_ins_id: self.bld_facade_label,
-                        bld_ins_id - 1: self.bld_roof_label,
+                        bld_ins_id + 1: self.bld_roof_label,
                     }
                     if bld_ins_id is not None
                     else None

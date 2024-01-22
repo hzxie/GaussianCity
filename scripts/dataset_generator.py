@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 15:29:33
+# @Last Modified at: 2024-01-20 18:56:32
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -120,7 +120,7 @@ def get_volume(points, scale=1, volume=None):
     return volume
 
 
-def get_volume_with_roof_1f(height_field, seg_map, freeways):
+def get_volume_with_roof_1f(height_field, seg_map, freeways=None):
     fe = extensions.footprint_extruder.FootprintExtruder(
         max_height=CONSTANTS["VOL_DEPTH"]
     )
@@ -131,18 +131,19 @@ def get_volume_with_roof_1f(height_field, seg_map, freeways):
         height_field.unsqueeze(dim=0).unsqueeze(dim=0),
         seg_map.unsqueeze(dim=0).unsqueeze(dim=0),
     )
-    volume = get_volume(
-        freeways, scale=CONSTANTS["STATIC_SCALE"], volume=volume.squeeze(dim=0)
-    )
+    if freeways is not None:
+        volume = get_volume(
+            freeways, scale=CONSTANTS["STATIC_SCALE"], volume=volume.squeeze(dim=0)
+        )
     return volume.squeeze(dim=0)
 
 
-def get_voxel_raycasting(cam_rig, cam_pose, volume):
+def get_camera_poses(cam_pose, volume_size):
     # TODO: Consider the scale for cars
-    cam_pose["tx"] = (float(cam_pose["tx"]) / 100 + volume.size(1)) / CONSTANTS[
+    cam_pose["tx"] = (float(cam_pose["tx"]) / 100 + volume_size[1]) / CONSTANTS[
         "STATIC_SCALE"
     ]
-    cam_pose["ty"] = (float(cam_pose["ty"]) / 100 + volume.size(0)) / CONSTANTS[
+    cam_pose["ty"] = (float(cam_pose["ty"]) / 100 + volume_size[0]) / CONSTANTS[
         "STATIC_SCALE"
     ]
     cam_pose["tz"] = (float(cam_pose["tz"]) / 100) / CONSTANTS[
@@ -160,7 +161,17 @@ def get_voxel_raycasting(cam_rig, cam_pose, volume):
             ]
         ),
     )
-    return get_ray_voxel_intersection(cam_rig, cam_position, cam_look_at, volume)
+    return {
+        "cam_position": cam_position,
+        "cam_look_at": cam_look_at,
+    }
+
+
+def get_voxel_raycasting(cam_rig, cam_pose, volume):
+    cp = get_camera_poses(cam_pose, volume.size())
+    return get_ray_voxel_intersection(
+        cam_rig, cp["cam_position"], cp["cam_look_at"], volume
+    )
 
 
 def get_look_at_position(cam_position, cam_quaternion):
