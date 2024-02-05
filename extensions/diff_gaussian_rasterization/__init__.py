@@ -14,6 +14,7 @@ import typing
 
 import diff_gaussian_rasterization_ext as dgr_ext
 
+
 def cpu_deep_copy_tuple(input_tuple):
     copied_tensors = [
         item.cpu().clone() if isinstance(item, torch.Tensor) else item
