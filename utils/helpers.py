@@ -4,13 +4,14 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 15:15:23
+# @Last Modified at: 2024-02-08 18:49:35
 # @Email:  root@haozhexie.com
 
 import numpy as np
 import torch
 
 from PIL import Image
+from tqdm import tqdm
 
 count_parameters = lambda n: sum(p.numel() for p in n.parameters())
 
@@ -75,23 +76,18 @@ def get_ins_seg_map_palette(legacy_palette):
     # The odd and even indexes are reserved for roof and facade, respectively.
     palatte0 = np.random.randint(256, size=(MAX_N_INSTANCES, 3))
     # palatte1 = (255 - palatte0) // 50  + palatte0
-    palatte1 = palatte0 - 2
-    palatte1[palatte1 < 0] = 0
-
-    palatte = np.concatenate((palatte0, palatte1), axis=1)
+    # palatte1 = palatte0 - 2
+    # palatte1[palatte1 < 0] = 0
+    # palatte = np.concatenate((palatte0, palatte1), axis=1)
+    palatte = palatte0
     palatte = palatte.reshape(-1, 3)
-    palatte[:7] = legacy_palette[:7]
+    palatte[:9] = legacy_palette[:9]
     return palatte
 
 
 @static_vars(palatte=get_ins_seg_map_palette(get_seg_map_palette()))
 def get_ins_seg_map(seg_map):
-    h, w = seg_map.shape
-    seg_map_rgb = np.zeros((h, w, 3), dtype=np.uint8)
-    for i in range(np.max(seg_map) + 1):
-        seg_map_rgb[seg_map == i] = get_ins_seg_map.palatte[i]
-
-    return Image.fromarray(seg_map_rgb)
+    return Image.fromarray(get_ins_seg_map.palatte[seg_map].astype(np.uint8))
 
 
 def get_diffuse_shading_img(seg_map, depth2, raydirs, cam_origin):

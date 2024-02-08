@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-05 16:43:05
+# @Last Modified at: 2024-02-06 09:58:55
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -112,7 +112,7 @@ cfg.NETWORK.GANCRAFT.RENDER_OUT_DIM_COLOR        = 64
 cfg.NETWORK.GANCRAFT.DIS_N_CHANNEL_BASE          = 128
 # Gaussian
 cfg.NETWORK.GAUSSIAN                             = EasyDict()
-cfg.NETWORK.GAUSSIAN.USE_RGB_ONLY                = False
+cfg.NETWORK.GAUSSIAN.USE_RGB_ONLY                = True
 cfg.NETWORK.GAUSSIAN.FEATURE_DIM                 = 128
 cfg.NETWORK.GAUSSIAN.INIT_OPACITY                = 0.1
 cfg.NETWORK.GAUSSIAN.INIT_SCALING                = -5.0
