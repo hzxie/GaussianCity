@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-12 17:06:21
+# @Last Modified at: 2024-02-12 20:19:42
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -167,7 +167,7 @@ def dump_projections(projections, output_dir, is_debug):
                         out_fpath
                     )
             else:
-                Image.fromarray(v.astype(np.uint16)).save(out_fpath)
+                Image.fromarray(v.astype(np.int16)).save(out_fpath)
 
 
 def load_projections(output_dir):
@@ -176,14 +176,11 @@ def load_projections(output_dir):
 
     projections = {}
     for c in CATEGORIES:
-        # FASTER DEBUG
-        if c != "REST":
-            continue
         if c not in projections:
             projections[c] = {}
         for m in MAP_NAMES:
             out_fpath = os.path.join(output_dir, "%s-%s.png" % (c, m))
-            projections[c][m] = np.array(Image.open(out_fpath)).astype(np.uint16)
+            projections[c][m] = np.array(Image.open(out_fpath)).astype(np.int16)
             logging.debug(
                 "Map[%s/%s] Max Value: %d Size: %s"
                 % (c, m, np.max(projections[c][m]), projections[c][m].shape)
@@ -192,13 +189,13 @@ def load_projections(output_dir):
 
 
 def get_points_from_projections(projections):
-    points = np.empty((0, 4), dtype=np.float32)
+    points = np.empty((0, 5), dtype=np.int16)
     for c, p in projections.items():
         _points = _get_points_from_projection(p)
-        print(_points.shape)
-        # points = np.concatenate(points, _points)
+        points = np.concatenate((points, _points), axis=0)
         logging.debug("Category: %s: #Points: %d" % (c, len(_points)))
 
+    logging.debug("#Points: %d" % (len(points)))
     return points
 
 
@@ -272,17 +269,19 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             )
         )
 
-        # logging.info("Generating point projections...")
-        # projections = get_points_projection(points)
+        logging.info("Generating point projections...")
+        projections = get_points_projection(points)
 
-        # logging.info("Generating water areas...")
-        # projections["REST"] = get_water_areas(projections["REST"])
+        logging.info("Generating water areas...")
+        projections["REST"] = get_water_areas(projections["REST"])
 
         # logging.info("Saving projections...")
         proj_dir = os.path.join(city_dir, "Projection")
-        # dump_projections(projections, proj_dir, is_debug)
+        dump_projections(projections, proj_dir, is_debug)
 
-        projections = load_projections(proj_dir)
+        # logging.info("loading projections...")
+        # projections = load_projections(proj_dir)
+
         logging.info("Generate initial points...")
         points = get_points_from_projections(projections)
 

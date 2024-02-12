@@ -3,7 +3,7 @@
  * @Author: Haozhe Xie
  * @Date:   2024-02-12 13:07:49
  * @Last Modified by: Haozhe Xie
- * @Last Modified at: 2024-02-12 19:05:29
+ * @Last Modified at: 2024-02-12 20:10:17
  * @Email:  root@haozhexie.com
  *
  * References:
@@ -39,17 +39,17 @@ int initNumpy() {
 }
 const static int NUMPY_INITIALIZED = initNumpy();
 
-/* NOTE: The second dummy parameters is for overloading */
-inline int16_t getValueFromPyObject(PyObject *obj, const int16_t *_) {
-  return static_cast<int16_t>(PyLong_AsLong(obj));
+// NOTE: The second dummy parameters is for overloading
+inline short getValueFromPyObject(PyObject *obj, const short *_) {
+  return static_cast<short>(PyLong_AsLong(obj));
 }
 
-/* NOTE: The second dummy parameters is for overloading */
+// NOTE: The second dummy parameters is for overloading
 inline std::string getValueFromPyObject(PyObject *obj, const std::string *_) {
   char *c_str = PyBytes_AsString(PyUnicode_AsUTF8String(obj));
   std::string str(c_str);
-  Py_DECREF(obj);
-  // The following statement causes segmentation fault.
+  // The following statements cause segmentation fault.
+  // Py_DECREF(obj);
   // PyMem_Free(c_str);
   return str;
 }
@@ -68,13 +68,13 @@ std::map<kT, vT> getMapFromPyObject(PyObject *obj, const kT &kP, const vT &vP) {
   return map;
 }
 
-PyObject *getNumpyArrayFromVector(std::vector<std::vector<int16_t>> vec2d) {
+PyObject *getNumpyArrayFromVector(std::vector<std::vector<short>> vec2d) {
   // Determine the dimensions of the 2D std::vector
   npy_intp dims[2] = {static_cast<npy_intp>(vec2d.size()),
                       static_cast<npy_intp>(vec2d[0].size())};
   // Convert the 2D std::vector to a NumPy array
   PyObject *numpy_array = PyArray_SimpleNew(2, dims, NPY_UINT16);
-  int16_t *data = reinterpret_cast<int16_t *>(
+  short *data = reinterpret_cast<short *>(
       PyArray_DATA(reinterpret_cast<PyArrayObject *>(numpy_array)));
   // Copy the data from the 2D std::vector to the NumPy array using pointer
   // arithmetic
@@ -86,11 +86,11 @@ PyObject *getNumpyArrayFromVector(std::vector<std::vector<int16_t>> vec2d) {
   return numpy_array;
 }
 
-inline size_t getArrayIndex(int16_t rowIdx, int16_t colIdx, int16_t nCols) {
+inline size_t getArrayIndex(short rowIdx, short colIdx, short nCols) {
   return rowIdx * nCols + colIdx;
 }
 
-inline int16_t getSemanticID(int16_t instanceID) {
+inline short getSemanticID(short instanceID) {
   if (instanceID < BLDG_INS_MIN_ID) {
     return instanceID;
   } else if (instanceID >= CAR_INS_MIN_ID) {
@@ -101,9 +101,9 @@ inline int16_t getSemanticID(int16_t instanceID) {
   }
 }
 
-inline bool isBorder(int16_t x, int16_t y, int16_t z, int16_t height,
-                     int16_t width, const int16_t *segMap,
-                     const int16_t *tpDwnHgtFld, const int16_t *btmUpHgtFld) {
+inline bool isBorder(short x, short y, short z, short height, short width,
+                     const short *segMap, const short *tpDwnHgtFld,
+                     const short *btmUpHgtFld) {
   int idx = getArrayIndex(y, x, width);
   if (z == btmUpHgtFld[idx] || z == tpDwnHgtFld[idx]) {
     return true;
@@ -113,10 +113,10 @@ inline bool isBorder(int16_t x, int16_t y, int16_t z, int16_t height,
   }
 
   // The coordinates of neighboring points
-  int16_t neg_x = x - 1, pos_x = x + 1;
-  int16_t neg_y = y - 1, pos_y = y + 1;
+  short neg_x = x - 1, pos_x = x + 1;
+  short neg_y = y - 1, pos_y = y + 1;
   // Unroll the for-loop for faster speed
-  std::array<int16_t, 9> values{
+  std::array<short, 9> values{
       segMap[getArrayIndex(neg_y, neg_x, width)],
       segMap[getArrayIndex(neg_y, x, width)],
       segMap[getArrayIndex(neg_y, pos_x, width)],
@@ -128,7 +128,7 @@ inline bool isBorder(int16_t x, int16_t y, int16_t z, int16_t height,
       segMap[getArrayIndex(pos_y, pos_x, width)],
   };
 
-  for (size_t i = 1; i < values.size(); ++ i) {
+  for (size_t i = 1; i < values.size(); ++i) {
     if (values[i - 1] != values[i]) {
       return true;
     }
@@ -150,25 +150,26 @@ static PyObject *getPointsFromProjection(PyObject *self, PyObject *args) {
     return NULL;
   }
 
+  // NOTE: The last two dummy parameters are used for overloading
   auto classes =
-      getMapFromPyObject<int16_t, std::string>(pyClasses, 0, std::string());
+      getMapFromPyObject<short, std::string>(pyClasses, 0, std::string());
   auto scales =
-      getMapFromPyObject<std::string, int16_t>(pyScales, std::string(), 0);
+      getMapFromPyObject<std::string, short>(pyScales, std::string(), 0);
 
   npy_intp *mapSize = PyArray_SHAPE(pyPtsMap);
-  int16_t height = mapSize[0], width = mapSize[1];
-  assert(height <= std::numeric_limits<std::uint16_t>::max());
-  assert(width <= std::numeric_limits<std::uint16_t>::max());
+  short height = mapSize[0], width = mapSize[1];
+  assert(height <= std::numeric_limits<std::short>::max());
+  assert(width <= std::numeric_limits<std::short>::max());
   assert(height * width <= std::numeric_limits<std::size_t>::max());
 
-  int16_t *segMap = static_cast<int16_t *>(PyArray_DATA(pySegMap));
-  int16_t *tpDwnHgtFld = static_cast<int16_t *>(PyArray_DATA(pyTpDwnHgtFld));
-  int16_t *btmUpHgtFld = static_cast<int16_t *>(PyArray_DATA(pyBtmUpHgtFld));
+  short *segMap = static_cast<short *>(PyArray_DATA(pySegMap));
+  short *tpDwnHgtFld = static_cast<short *>(PyArray_DATA(pyTpDwnHgtFld));
+  short *btmUpHgtFld = static_cast<short *>(PyArray_DATA(pyBtmUpHgtFld));
   bool *ptsMap = static_cast<bool *>(PyArray_DATA(pyPtsMap));
 
-  std::vector<std::vector<int16_t>> points;
-  for (int16_t i = 0; i < height; ++i) {
-    for (int16_t j = 0; j < width; ++j) {
+  std::vector<std::vector<short>> points;
+  for (short i = 0; i < height; ++i) {
+    for (short j = 0; j < width; ++j) {
       size_t idx = getArrayIndex(i, j, width);
       // The pixels in segMap, tpDwnHgtFld, and btmUpHgtFld are densified.
       // The original points (without densification) are defined in ptsMap.
@@ -177,10 +178,10 @@ static PyObject *getPointsFromProjection(PyObject *self, PyObject *args) {
       }
       // The semantic labels for buildings would be merged to facade in
       // getSemanticID().
-      int16_t instanceID = segMap[idx];
-      int16_t semanticID = getSemanticID(instanceID);
-      int16_t scale = scales[classes[semanticID]];
-      for (int16_t k = btmUpHgtFld[idx]; k <= tpDwnHgtFld[idx]; k += scale) {
+      short instanceID = segMap[idx];
+      short semanticID = getSemanticID(instanceID);
+      short scale = scales[classes[semanticID]];
+      for (short k = btmUpHgtFld[idx]; k <= tpDwnHgtFld[idx]; k += scale) {
         // Make all objects hallow
         if (!isBorder(j, i, k, height, width, segMap, tpDwnHgtFld,
                       btmUpHgtFld)) {
