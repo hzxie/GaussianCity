@@ -15,39 +15,15 @@ import typing
 import diff_gaussian_rasterization_ext as dgr_ext
 
 
-def cpu_deep_copy_tuple(input_tuple):
-    copied_tensors = [
-        item.cpu().clone() if isinstance(item, torch.Tensor) else item
-        for item in input_tuple
-    ]
-    return tuple(copied_tensors)
+class RasterizeGaussiansFunction(torch.autograd.Function):
+    @staticmethod
+    def _cpu_deep_copy_tuple(_, input_tuple):
+        copied_tensors = [
+            item.cpu().clone() if isinstance(item, torch.Tensor) else item
+            for item in input_tuple
+        ]
+        return tuple(copied_tensors)
 
-
-def rasterize_gaussians(
-    means3D,
-    means2D,
-    sh,
-    colors_precomp,
-    opacities,
-    scales,
-    rotations,
-    cov3Ds_precomp,
-    raster_settings,
-):
-    return _RasterizeGaussians.apply(
-        means3D,
-        means2D,
-        sh,
-        colors_precomp,
-        opacities,
-        scales,
-        rotations,
-        cov3Ds_precomp,
-        raster_settings,
-    )
-
-
-class _RasterizeGaussians(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx,
@@ -86,7 +62,7 @@ class _RasterizeGaussians(torch.autograd.Function):
 
         # Invoke C++/CUDA rasterizer
         if raster_settings.debug:
-            cpu_args = cpu_deep_copy_tuple(
+            cpu_args = RasterizeGaussiansFunction._cpu_deep_copy_tuple(
                 args
             )  # Copy them before they can be corrupted
             try:
@@ -176,7 +152,7 @@ class _RasterizeGaussians(torch.autograd.Function):
 
         # Compute gradients for relevant tensors by invoking backward method
         if raster_settings.debug:
-            cpu_args = cpu_deep_copy_tuple(
+            cpu_args = RasterizeGaussiansFunction._cpu_deep_copy_tuple(
                 args
             )  # Copy them before they can be corrupted
             try:
@@ -240,17 +216,8 @@ class GaussianRasterizationSettings(typing.NamedTuple):
 
 class GaussianRasterizer(torch.nn.Module):
     def __init__(self, raster_settings):
-        super().__init__()
+        super(GaussianRasterizer, self).__init__()
         self.raster_settings = raster_settings
-
-    def markVisible(self, positions):
-        # Mark visible points (based on frustum culling for camera) with a boolean
-        with torch.no_grad():
-            raster_settings = self.raster_settings
-            visible = dgr_ext.mark_visible(
-                positions, raster_settings.viewmatrix, raster_settings.projmatrix
-            )
-        return visible
 
     def forward(
         self,
@@ -292,7 +259,7 @@ class GaussianRasterizer(torch.nn.Module):
             cov3D_precomp = torch.Tensor([])
 
         # Invoke C++/CUDA rasterization routine
-        return rasterize_gaussians(
+        return RasterizeGaussiansFunction.apply(
             means3D,
             means2D,
             shs,

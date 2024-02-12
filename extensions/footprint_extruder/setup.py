@@ -2,25 +2,25 @@
 #
 # @File:   setup.py
 # @Author: Haozhe Xie
-# @Date:   2023-03-24 20:35:43
+# @Date:   2024-02-12 13:07:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2023-12-23 10:41:24
+# @Last Modified at: 2024-02-12 13:07:32
 # @Email:  root@haozhexie.com
 
-from setuptools import setup
-from torch.utils.cpp_extension import BuildExtension, CUDAExtension
+import numpy
 
+from distutils.core import setup, Extension
+
+# run the setup
 setup(
     name="footprint_extruder",
-    version="1.0.0",
+    version="2.0.0",
     ext_modules=[
-        CUDAExtension(
-            "footprint_extruder_ext",
-            [
-                "bindings.cpp",
-                "footprint_extruder_ext.cu",
-            ],
-        ),
+        Extension(
+            "footprint_extruder",
+            sources=["footprint_extruder.cpp"],
+            include_dirs=[numpy.get_include()],
+            extra_compile_args=["-std=c++11"],
+        )
     ],
-    cmdclass={"build_ext": BuildExtension},
 )

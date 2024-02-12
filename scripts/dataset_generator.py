@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-08 19:46:33
+# @Last Modified at: 2024-02-12 17:06:21
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -20,10 +20,17 @@ import torch
 from PIL import Image
 from tqdm import tqdm
 
+
 PROJECT_HOME = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
 sys.path.append(PROJECT_HOME)
 
+import footprint_extruder
 import utils.helpers
+
+# Disable the warning message for PIL decompression bomb
+# Ref: https://stackoverflow.com/questions/25705773/image-cropping-tool-python
+Image.MAX_IMAGE_PIXELS = None
+
 
 CLASSES = {
     "GAUSSIAN": {
@@ -151,8 +158,7 @@ def dump_projections(projections, output_dir, is_debug):
     os.makedirs(output_dir, exist_ok=True)
     for c, p in projections.items():
         for k, v in p.items():
-            out_fname = "%s-%s.png" % (c, k)
-            out_fpath = os.path.join(output_dir, out_fname)
+            out_fpath = os.path.join(output_dir, "%s-%s.png" % (c, k))
             if is_debug:
                 if k == "SEG":
                     utils.helpers.get_ins_seg_map(v).save(out_fpath)
@@ -161,7 +167,50 @@ def dump_projections(projections, output_dir, is_debug):
                         out_fpath
                     )
             else:
-                Image.fromarray(v).save(out_fpath)
+                Image.fromarray(v.astype(np.uint16)).save(out_fpath)
+
+
+def load_projections(output_dir):
+    CATEGORIES = ["CAR", "FWY", "REST"]
+    MAP_NAMES = ["SEG", "TD_HF", "BU_HF", "PTS"]
+
+    projections = {}
+    for c in CATEGORIES:
+        # FASTER DEBUG
+        if c != "REST":
+            continue
+        if c not in projections:
+            projections[c] = {}
+        for m in MAP_NAMES:
+            out_fpath = os.path.join(output_dir, "%s-%s.png" % (c, m))
+            projections[c][m] = np.array(Image.open(out_fpath)).astype(np.uint16)
+            logging.debug(
+                "Map[%s/%s] Max Value: %d Size: %s"
+                % (c, m, np.max(projections[c][m]), projections[c][m].shape)
+            )
+    return projections
+
+
+def get_points_from_projections(projections):
+    points = np.empty((0, 4), dtype=np.float32)
+    for c, p in projections.items():
+        _points = _get_points_from_projection(p)
+        print(_points.shape)
+        # points = np.concatenate(points, _points)
+        logging.debug("Category: %s: #Points: %d" % (c, len(_points)))
+
+    return points
+
+
+def _get_points_from_projection(projection):
+    return footprint_extruder.get_points_from_projection(
+        {v: k for k, v in CLASSES["GAUSSIAN"].items()},
+        SCALES,
+        projection["SEG"],
+        projection["TD_HF"],
+        projection["BU_HF"],
+        projection["PTS"].astype(bool),
+    )
 
 
 def get_camera_poses(cam_pose, map_size):
@@ -191,7 +240,9 @@ def get_look_at_position(cam_position, cam_quaternion):
     return cam_position + mat3[:3, 0]
 
 
-def main(data_dir, seg_map_file_pattern, is_debug):
+def main(data_dir, seg_map_file_pattern, gpus, is_debug):
+    os.environ["CUDA_VISIBLE_DEVICES"] = gpus
+
     cities = sorted(os.listdir(data_dir))
     for city in tqdm(cities):
         city_dir = os.path.join(data_dir, city)
@@ -203,6 +254,7 @@ def main(data_dir, seg_map_file_pattern, is_debug):
         with open(points_file_path, "rb") as fp:
             points = pickle.load(fp)
 
+        # NOTE: 5x means that the values are scaled up by a factor of 5 in Houdini export.
         logging.debug(
             "[5x] X Min: %d, X Max: %d" % (np.min(points[:, 0]), np.max(points[:, 0]))
         )
@@ -220,15 +272,19 @@ def main(data_dir, seg_map_file_pattern, is_debug):
             )
         )
 
-        logging.info("Generating point projections...")
-        projections = get_points_projection(points)
+        # logging.info("Generating point projections...")
+        # projections = get_points_projection(points)
 
-        logging.info("Generating water areas...")
-        projections["REST"] = get_water_areas(projections["REST"])
+        # logging.info("Generating water areas...")
+        # projections["REST"] = get_water_areas(projections["REST"])
 
-        logging.info("Saving projections...")
+        # logging.info("Saving projections...")
         proj_dir = os.path.join(city_dir, "Projection")
-        dump_projections(projections, proj_dir, is_debug)
+        # dump_projections(projections, proj_dir, is_debug)
+
+        projections = load_projections(proj_dir)
+        logging.info("Generate initial points...")
+        points = get_points_from_projections(projections)
 
 
 if __name__ == "__main__":
@@ -239,6 +295,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", default=os.path.join(PROJECT_HOME, "data"))
     parser.add_argument("--seg_map", default="SemanticImage/%sSequence.%04d.png")
+    parser.add_argument("--gpu", default="0")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
-    main(args.data_dir, args.seg_map, args.debug)
+    main(args.data_dir, args.seg_map, args.gpu, args.debug)
