@@ -3,7 +3,7 @@
  * @Author: Haozhe Xie
  * @Date:   2024-02-12 13:07:49
  * @Last Modified by: Haozhe Xie
- * @Last Modified at: 2024-02-12 20:10:17
+ * @Last Modified at: 2024-02-13 16:27:41
  * @Email:  root@haozhexie.com
  *
  * References:
@@ -101,39 +101,41 @@ inline short getSemanticID(short instanceID) {
   }
 }
 
+inline bool isNeighboringValueSame(const short *map, short x, short y,
+                                   short width, short scale) {
+  // Unroll the for-loop for faster speed
+  // For the next point, the index is x/y + scale instead of x/y + 1.
+  short c_value = map[getArrayIndex(y, x, width)];
+  std::array<short, 8> nbr_values{
+      map[getArrayIndex(y - 1, x - 1, width)],
+      map[getArrayIndex(y - 1, x, width)],
+      map[getArrayIndex(y - 1, x + 1, width)],
+      map[getArrayIndex(y, x - 1, width)],
+      map[getArrayIndex(y, x + scale, width)],
+      map[getArrayIndex(y + scale, x - 1, width)],
+      map[getArrayIndex(y + scale, x, width)],
+      map[getArrayIndex(y + scale, x + scale, width)],
+  };
+  for (size_t i = 0; i < nbr_values.size(); ++i) {
+    if (c_value != nbr_values[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 inline bool isBorder(short x, short y, short z, short height, short width,
-                     const short *segMap, const short *tpDwnHgtFld,
+                     short scale, const short *segMap, const short *tpDwnHgtFld,
                      const short *btmUpHgtFld) {
   int idx = getArrayIndex(y, x, width);
   if (z == btmUpHgtFld[idx] || z == tpDwnHgtFld[idx]) {
     return true;
   }
-  if (x == 0 || x == width - 1 || y == 0 || y == height - 1) {
+  if (x == 0 || x == width - scale - 1 || y == 0 || y == height - scale - 1) {
     return true;
   }
-
-  // The coordinates of neighboring points
-  short neg_x = x - 1, pos_x = x + 1;
-  short neg_y = y - 1, pos_y = y + 1;
-  // Unroll the for-loop for faster speed
-  std::array<short, 9> values{
-      segMap[getArrayIndex(neg_y, neg_x, width)],
-      segMap[getArrayIndex(neg_y, x, width)],
-      segMap[getArrayIndex(neg_y, pos_x, width)],
-      segMap[getArrayIndex(y, neg_x, width)],
-      segMap[idx],
-      segMap[getArrayIndex(y, pos_x, width)],
-      segMap[getArrayIndex(pos_y, neg_x, width)],
-      segMap[getArrayIndex(pos_y, x, width)],
-      segMap[getArrayIndex(pos_y, pos_x, width)],
-  };
-
-  for (size_t i = 1; i < values.size(); ++i) {
-    if (values[i - 1] != values[i]) {
-      return true;
-    }
-  }
-  return false;
+  return !isNeighboringValueSame(segMap, x, y, width, scale) ||
+         !isNeighboringValueSame(tpDwnHgtFld, x, y, width, scale);
 }
 
 static PyObject *getPointsFromProjection(PyObject *self, PyObject *args) {
@@ -176,14 +178,13 @@ static PyObject *getPointsFromProjection(PyObject *self, PyObject *args) {
       if (!ptsMap[idx]) {
         continue;
       }
-      // The semantic labels for buildings would be merged to facade in
-      // getSemanticID().
+
       short instanceID = segMap[idx];
       short semanticID = getSemanticID(instanceID);
       short scale = scales[classes[semanticID]];
       for (short k = btmUpHgtFld[idx]; k <= tpDwnHgtFld[idx]; k += scale) {
         // Make all objects hallow
-        if (!isBorder(j, i, k, height, width, segMap, tpDwnHgtFld,
+        if (!isBorder(j, i, k, height, width, scale, segMap, tpDwnHgtFld,
                       btmUpHgtFld)) {
           continue;
         }
