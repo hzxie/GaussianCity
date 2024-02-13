@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-12 20:19:42
+# @Last Modified at: 2024-02-13 09:44:38
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -182,18 +182,28 @@ def load_projections(output_dir):
             out_fpath = os.path.join(output_dir, "%s-%s.png" % (c, m))
             projections[c][m] = np.array(Image.open(out_fpath)).astype(np.int16)
             logging.debug(
-                "Map[%s/%s] Max Value: %d Size: %s"
-                % (c, m, np.max(projections[c][m]), projections[c][m].shape)
+                "Map[%s/%s] Min/Max Value: (%d, %d) Size: %s"
+                % (
+                    c,
+                    m,
+                    np.min(projections[c][m]),
+                    np.max(projections[c][m]),
+                    projections[c][m].shape,
+                )
             )
     return projections
 
 
 def get_points_from_projections(projections):
+    # XYZ, Scale, Instance ID
     points = np.empty((0, 5), dtype=np.int16)
     for c, p in projections.items():
         _points = _get_points_from_projection(p)
         points = np.concatenate((points, _points), axis=0)
-        logging.debug("Category: %s: #Points: %d" % (c, len(_points)))
+        logging.debug(
+            "Category: %s: #Points: %d, Min/Max Value: (%d, %d)"
+            % (c, len(_points), np.min(_points), np.max(_points))
+        )
 
     logging.debug("#Points: %d" % (len(points)))
     return points
@@ -248,42 +258,54 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             logging.warning("File %s not found for %s" % (points_file_path, city))
             continue
 
-        with open(points_file_path, "rb") as fp:
-            points = pickle.load(fp)
+        # with open(points_file_path, "rb") as fp:
+        #     points = pickle.load(fp)
 
-        # NOTE: 5x means that the values are scaled up by a factor of 5 in Houdini export.
-        logging.debug(
-            "[5x] X Min: %d, X Max: %d" % (np.min(points[:, 0]), np.max(points[:, 0]))
-        )
-        logging.debug(
-            "[5x] Y Min: %d, Y Max: %d" % (np.min(points[:, 1]), np.max(points[:, 1]))
-        )
-        logging.debug(
-            "[5x] Z Min: %d, Z Max: %d" % (np.min(points[:, 2]), np.max(points[:, 2]))
-        )
-        logging.debug(
-            "Building Max: %d, Car Max: %d"
-            % (
-                np.max(points[:, 3][points[:, 3] < CONSTANTS["CAR_INS_MIN_ID"]]),
-                np.max(points[:, 3][points[:, 3] > CONSTANTS["CAR_INS_MIN_ID"]]),
-            )
-        )
+        # # NOTE: 5x means that the values are scaled up by a factor of 5 in Houdini export.
+        # logging.debug(
+        #     "[5x] X Min: %d, X Max: %d" % (np.min(points[:, 0]), np.max(points[:, 0]))
+        # )
+        # logging.debug(
+        #     "[5x] Y Min: %d, Y Max: %d" % (np.min(points[:, 1]), np.max(points[:, 1]))
+        # )
+        # logging.debug(
+        #     "[5x] Z Min: %d, Z Max: %d" % (np.min(points[:, 2]), np.max(points[:, 2]))
+        # )
+        # logging.debug(
+        #     "Building Max: %d, Car Max: %d"
+        #     % (
+        #         np.max(points[:, 3][points[:, 3] < CONSTANTS["CAR_INS_MIN_ID"]]),
+        #         np.max(points[:, 3][points[:, 3] > CONSTANTS["CAR_INS_MIN_ID"]]),
+        #     )
+        # )
 
-        logging.info("Generating point projections...")
-        projections = get_points_projection(points)
+        # logging.info("Generating point projections...")
+        # projections = get_points_projection(points)
 
-        logging.info("Generating water areas...")
-        projections["REST"] = get_water_areas(projections["REST"])
+        # logging.info("Generating water areas...")
+        # projections["REST"] = get_water_areas(projections["REST"])
 
         # logging.info("Saving projections...")
-        proj_dir = os.path.join(city_dir, "Projection")
-        dump_projections(projections, proj_dir, is_debug)
+        # proj_dir = os.path.join(city_dir, "Projection")
+        # dump_projections(projections, proj_dir, is_debug)
 
+        # Debug: Load projection caches without computing
         # logging.info("loading projections...")
         # projections = load_projections(proj_dir)
 
-        logging.info("Generate initial points...")
-        points = get_points_from_projections(projections)
+        # logging.info("Generate initial points...")
+        # points = get_points_from_projections(projections)
+        # np.save("/tmp/points.npy", points.astype(np.int16))
+
+        # Debug: Load generated initial points without computing
+        logging.info("Generating point cloud...")
+        points = np.load("/tmp/points.npy")
+        xyz = points[:, :3]
+        rgb = utils.helpers.get_ins_colors(points[:, 4])
+        # Debug: Point Cloud Visualization
+        utils.helpers.dump_ptcloud_ply("/tmp/points.ply", xyz, rgb)
+
+        # TODO: Align with camera poses
 
 
 if __name__ == "__main__":

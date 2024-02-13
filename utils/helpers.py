@@ -4,14 +4,14 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-08 18:49:35
+# @Last Modified at: 2024-02-13 09:47:08
 # @Email:  root@haozhexie.com
 
 import numpy as np
+import plyfile
 import torch
 
 from PIL import Image
-from tqdm import tqdm
 
 count_parameters = lambda n: sum(p.numel() for p in n.parameters())
 
@@ -75,10 +75,9 @@ def get_ins_seg_map_palette(legacy_palette):
     # Make sure that the roof colors are similar to the corresponding facade colors.
     # The odd and even indexes are reserved for roof and facade, respectively.
     palatte0 = np.random.randint(256, size=(MAX_N_INSTANCES, 3))
-    # palatte1 = (255 - palatte0) // 50  + palatte0
-    # palatte1 = palatte0 - 2
-    # palatte1[palatte1 < 0] = 0
-    # palatte = np.concatenate((palatte0, palatte1), axis=1)
+    palatte1 = palatte0 * 0.6
+
+    palatte = np.concatenate((palatte0, palatte1), axis=1)
     palatte = palatte0
     palatte = palatte.reshape(-1, 3)
     palatte[:9] = legacy_palette[:9]
@@ -87,32 +86,12 @@ def get_ins_seg_map_palette(legacy_palette):
 
 @static_vars(palatte=get_ins_seg_map_palette(get_seg_map_palette()))
 def get_ins_seg_map(seg_map):
-    return Image.fromarray(get_ins_seg_map.palatte[seg_map].astype(np.uint8))
+    return Image.fromarray(get_ins_colors(seg_map))
 
 
-def get_diffuse_shading_img(seg_map, depth2, raydirs, cam_origin):
-    mc_rgb = np.array(seg_map.convert("RGB"))
-    # Diffused shading, co-located light.
-    first_intersection_depth = depth2[0, :, :, 0, None, :]
-    first_intersection_point = (
-        raydirs * first_intersection_depth + cam_origin[None, None, None, :]
-    )
-    fip_local_coords = torch.remainder(first_intersection_point, 1.0)
-    fip_wall_proximity = torch.minimum(fip_local_coords, 1.0 - fip_local_coords)
-    fip_wall_orientation = torch.argmin(fip_wall_proximity, dim=-1, keepdim=False)
-    # 0: [1,0,0]; 1: [0,1,0]; 2: [0,0,1]
-    lut = torch.tensor(
-        [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
-        dtype=torch.float32,
-        device=fip_wall_orientation.device,
-    )
-    fip_normal = lut[fip_wall_orientation]
-    diffuse_shade = torch.abs(torch.sum(fip_normal * raydirs, dim=-1))
-
-    mc_rgb = mc_rgb.astype(float) / 255
-    mc_rgb = mc_rgb * diffuse_shade.cpu().numpy()
-    mc_rgb = (mc_rgb ** (1 / 2.2)) * 255
-    return Image.fromarray(mc_rgb.astype(np.uint8))
+def get_ins_colors(object):
+    # The object can be a seg_map or ptcloud.
+    return get_ins_seg_map.palatte[object].astype(np.uint8)
 
 
 def masks_to_onehots(masks, n_class, ignored_classes=[]):
@@ -166,3 +145,44 @@ def tensor_to_image(tensor, mode):
         return tensor.squeeze().transpose((1, 2, 0)) / 2 + 0.5
     else:
         raise Exception("Unknown mode: %s" % mode)
+
+
+def dump_ptcloud_ply(ply_fpath, xyz, rgb, attrs={}):
+    # Automatically align XY-plane to center of the point cloud
+    center_x = (np.min(xyz[:, 0]) + np.max(xyz[:, 0])) / 2
+    center_y = (np.min(xyz[:, 1]) + np.max(xyz[:, 1])) / 2
+    xyz[:, 0] -= center_x.astype(np.int16)
+    xyz[:, 1] -= center_y.astype(np.int16)
+
+    pts = [
+        (
+            xyz[i, 0],
+            xyz[i, 1],
+            xyz[i, 2],
+            rgb[i, 0],
+            rgb[i, 1],
+            rgb[i, 2],
+            *[attrs[k][i] for k in sorted(attrs.keys())],
+        )
+        for i in range(xyz.shape[0])
+    ]
+    dtype = [
+        ("x", "f4"),
+        ("y", "f4"),
+        ("z", "f4"),
+        ("red", "u1"),
+        ("green", "u1"),
+        ("blue", "u1"),
+        *[(k, "f4") for k in sorted(attrs.keys())],
+    ]
+    plyfile.PlyData(
+        [
+            plyfile.PlyElement.describe(
+                np.array(
+                    pts,
+                    dtype=dtype,
+                ),
+                "vertex",
+            )
+        ]
+    ).write(ply_fpath)

@@ -2,6 +2,7 @@ easydict
 numpy
 opencv-python
 pillow
+plyfile
 pynvml
 scipy
 tensorboard
