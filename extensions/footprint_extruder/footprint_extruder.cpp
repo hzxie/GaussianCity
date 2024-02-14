@@ -3,7 +3,7 @@
  * @Author: Haozhe Xie
  * @Date:   2024-02-12 13:07:49
  * @Last Modified by: Haozhe Xie
- * @Last Modified at: 2024-02-13 16:27:41
+ * @Last Modified at: 2024-02-14 18:43:15
  * @Email:  root@haozhexie.com
  *
  * References:
@@ -68,7 +68,8 @@ std::map<kT, vT> getMapFromPyObject(PyObject *obj, const kT &kP, const vT &vP) {
   return map;
 }
 
-PyObject *getNumpyArrayFromVector(std::vector<std::vector<short>> vec2d) {
+PyObject *
+getNumpyArrayFromVector(const std::vector<std::vector<short>> &vec2d) {
   // Determine the dimensions of the 2D std::vector
   npy_intp dims[2] = {static_cast<npy_intp>(vec2d.size()),
                       static_cast<npy_intp>(vec2d[0].size())};
@@ -196,7 +197,12 @@ static PyObject *getPointsFromProjection(PyObject *self, PyObject *args) {
       }
     }
   }
-  return getNumpyArrayFromVector(points);
+
+  // Returning empty array causes segmentation fault.
+  if (points.size() != 0) {
+    return getNumpyArrayFromVector(points);
+  }
+  Py_RETURN_NONE;
 }
 
 static PyMethodDef extensionMethods[] = {

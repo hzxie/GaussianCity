@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-13 16:39:10
+# @Last Modified at: 2024-02-14 17:04:54
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -24,6 +24,7 @@ from tqdm import tqdm
 PROJECT_HOME = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
 sys.path.append(PROJECT_HOME)
 
+import extensions.diff_gaussian_rasterization as dgr
 import footprint_extruder
 import utils.helpers
 
@@ -199,23 +200,30 @@ def load_projections(output_dir):
     return projections
 
 
-def get_points_from_projections(projections):
+def get_points_from_projections(projections, cx=None, cy=None, size=None):
     # XYZ, Scale, Instance ID
     points = np.empty((0, 5), dtype=np.int16)
     for c, p in projections.items():
-        _points = _get_points_from_projection(p)
-        points = np.concatenate((points, _points), axis=0)
-        logging.debug(
-            "Category: %s: #Points: %d, Min/Max Value: (%d, %d)"
-            % (c, len(_points), np.min(_points), np.max(_points))
-        )
+        _points = _get_points_from_projection(p, cx, cy, size)
+        if _points is not None:
+            points = np.concatenate((points, _points), axis=0)
+            logging.debug(
+                "Category: %s: #Points: %d, Min/Max Value: (%d, %d)"
+                % (c, len(_points), np.min(_points), np.max(_points))
+            )
 
     logging.debug("#Points: %d" % (len(points)))
     return points
 
 
-def _get_points_from_projection(projection):
-    return footprint_extruder.get_points_from_projection(
+def _get_points_from_projection(projection, cx=None, cy=None, size=None):
+    if cx is not None and cy is not None and size is not None:
+        for c, p in projection.items():
+            projection[c] = np.ascontiguousarray(
+                p[cy - size // 2 : cy + size // 2, cx - size // 2 : cx + size // 2]
+            )
+
+    points = footprint_extruder.get_points_from_projection(
         {v: k for k, v in CLASSES["GAUSSIAN"].items()},
         SCALES,
         projection["SEG"],
@@ -223,33 +231,12 @@ def _get_points_from_projection(projection):
         projection["BU_HF"],
         projection["PTS"].astype(bool),
     )
+    if points is not None:
+        # Recover the XY coordinates before cropping
+        points[:, 0] += cx - size // 2
+        points[:, 1] += cy - size // 2
 
-
-def get_camera_poses(cam_pose, map_size):
-    cam_pose["tx"] = float(cam_pose["tx"]) / 100 + map_size[1]
-    cam_pose["ty"] = float(cam_pose["ty"]) / 100 + map_size[0]
-    cam_pose["tz"] = float(cam_pose["tz"]) / 100
-    cam_position = np.array([cam_pose["tx"], cam_pose["ty"], cam_pose["tz"]])
-    cam_look_at = get_look_at_position(
-        cam_position,
-        np.array(
-            [
-                float(cam_pose["qx"]),
-                float(cam_pose["qy"]),
-                float(cam_pose["qz"]),
-                float(cam_pose["qw"]),
-            ]
-        ),
-    )
-    return {
-        "cam_position": cam_position,
-        "cam_look_at": cam_look_at,
-    }
-
-
-def get_look_at_position(cam_position, cam_quaternion):
-    mat3 = scipy.spatial.transform.Rotation.from_quat(cam_quaternion).as_matrix()
-    return cam_position + mat3[:3, 0]
+    return points
 
 
 def main(data_dir, seg_map_file_pattern, gpus, is_debug):
@@ -299,19 +286,42 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
         # proj_dir = os.path.join(city_dir, "Projection")
         # projections = load_projections(proj_dir)
 
-        logging.info("Generate initial points...")
-        points = get_points_from_projections(projections)
+        # logging.info("Generate initial points...")
+        cx = 12500
+        cy = 12500
+        size = 1024
+        points = get_points_from_projections(projections, cx, cy, size)
         # np.save("/tmp/points.npy", points.astype(np.int16))
 
         # Debug: Load generated initial points without computing
-        # logging.info("Generating point cloud...")
-        # # points = np.load("/tmp/points.npy")
-        # xyz = points[:, :3]
-        # rgb = utils.helpers.get_ins_colors(points[:, 4])
-        # # Debug: Point Cloud Visualization
-        # utils.helpers.dump_ptcloud_ply("/tmp/points.ply", xyz, rgb)
+        # points = np.load("/tmp/points.npy")
+        # points[:, M] -> 0:3: XYZ, 3: Scale, 4: Instance ID
+        xyz = points[:, :3]
+        rgbs = utils.helpers.get_ins_colors(points[:, 4])
+        opacity = np.ones((xyz.shape[0], 1))
+        scales = np.ones((xyz.shape[0], 3)) * points[:, [3]]
+        rotations = np.zeros((xyz.shape[0], 3))
 
-        # TODO: Align with camera poses
+        # Debug: Point Cloud Visualization
+        # logging.info("Saving the generated point cloud...")
+        # utils.helpers.dump_ptcloud_ply("/tmp/points.ply", xyz, rgbs)
+
+        points = np.concatenate((xyz, rgbs, opacity, scales, rotations), axis=1)
+        # Align with camera poses
+        # K = np.array(
+        #     [2828.2831640142235, 0, 960, 0, 2828.2831640142235, 540, 0, 0, 1],
+        # ).reshape(3, 3)
+        # cam_pos = np.array([109222.828125, 113239.468750, 11883.736328]) / 20
+        # cam_pos[0] += CONSTANTS["MAP_SIZE"] // 2
+        # cam_pos[1] += CONSTANTS["MAP_SIZE"] // 2
+        # cam_quat = np.array([0.004837, 0.002004, -0.923861, 0.382692])
+        # gr = dgr.GaussianRasterizerWrapper(K, device=torch.device("cuda"))
+        # with torch.no_grad():
+        #     img = gr(torch.from_numpy(points).float().cuda(), cam_pos, cam_quat)
+        #     import matplotlib.pyplot as plt
+
+        #     plt.imshow(img.cpu().numpy().squeeze().transpose(1, 2, 0))
+        #     plt.savefig("output/test.jpg")
 
 
 if __name__ == "__main__":
