@@ -1,14 +1,15 @@
+# -*- coding: utf-8 -*-
 #
-# Copyright (C) 2023, Inria
-# GRAPHDECO research group, https://team.inria.fr/graphdeco
-# All rights reserved.
-#
-# This software is free for non-commercial, research and evaluation use
-# under the terms of the LICENSE.md file.
-#
-# For inquiries contact  george.drettakis@inria.fr
-#
+# @File:   __init__.py
+# @Author: Inria <george.drettakis@inria.fr>
+# @Date:   2024-01-31 19:07:01
+# @Last Modified by: Haozhe Xie
+# @Last Modified at: 2024-02-15 09:29:29
+# @Email:  root@haozhexie.com
 
+import math
+import numpy as np
+import scipy
 import torch
 import typing
 
@@ -17,7 +18,7 @@ import diff_gaussian_rasterization_ext as dgr_ext
 
 class RasterizeGaussiansFunction(torch.autograd.Function):
     @staticmethod
-    def _cpu_deep_copy_tuple(_, input_tuple):
+    def _cpu_deep_copy_tuple(input_tuple):
         copied_tensors = [
             item.cpu().clone() if isinstance(item, torch.Tensor) else item
             for item in input_tuple
@@ -47,12 +48,12 @@ class RasterizeGaussiansFunction(torch.autograd.Function):
             rotations,
             raster_settings.scale_modifier,
             cov3Ds_precomp,
-            raster_settings.viewmatrix,
-            raster_settings.projmatrix,
+            raster_settings.view_matrix,
+            raster_settings.proj_matrix,
             raster_settings.tanfovx,
             raster_settings.tanfovy,
-            raster_settings.image_height,
-            raster_settings.image_width,
+            raster_settings.img_h,
+            raster_settings.img_w,
             sh,
             raster_settings.sh_degree,
             raster_settings.campos,
@@ -63,16 +64,16 @@ class RasterizeGaussiansFunction(torch.autograd.Function):
         # Invoke C++/CUDA rasterizer
         if raster_settings.debug:
             cpu_args = RasterizeGaussiansFunction._cpu_deep_copy_tuple(
-                args
+                input_tuple=args
             )  # Copy them before they can be corrupted
             try:
                 (
                     num_rendered,
                     color,
                     radii,
-                    geomBuffer,
-                    binningBuffer,
-                    imgBuffer,
+                    geom_buffer,
+                    binning_buffer,
+                    img_buffer,
                 ) = dgr_ext.rasterize_gaussians(*args)
             except Exception as ex:
                 torch.save(cpu_args, "snapshot_fw.dump")
@@ -85,9 +86,9 @@ class RasterizeGaussiansFunction(torch.autograd.Function):
                 num_rendered,
                 color,
                 radii,
-                geomBuffer,
-                binningBuffer,
-                imgBuffer,
+                geom_buffer,
+                binning_buffer,
+                img_buffer,
             ) = dgr_ext.rasterize_gaussians(*args)
 
         # Keep relevant tensors for backward
@@ -101,9 +102,9 @@ class RasterizeGaussiansFunction(torch.autograd.Function):
             cov3Ds_precomp,
             radii,
             sh,
-            geomBuffer,
-            binningBuffer,
-            imgBuffer,
+            geom_buffer,
+            binning_buffer,
+            img_buffer,
         )
         return color, radii
 
@@ -120,9 +121,9 @@ class RasterizeGaussiansFunction(torch.autograd.Function):
             cov3Ds_precomp,
             radii,
             sh,
-            geomBuffer,
-            binningBuffer,
-            imgBuffer,
+            geom_buffer,
+            binning_buffer,
+            img_buffer,
         ) = ctx.saved_tensors
 
         # Restructure args as C++ method expects them
@@ -135,25 +136,25 @@ class RasterizeGaussiansFunction(torch.autograd.Function):
             rotations,
             raster_settings.scale_modifier,
             cov3Ds_precomp,
-            raster_settings.viewmatrix,
-            raster_settings.projmatrix,
+            raster_settings.view_matrix,
+            raster_settings.proj_matrix,
             raster_settings.tanfovx,
             raster_settings.tanfovy,
             grad_out_color,
             sh,
             raster_settings.sh_degree,
             raster_settings.campos,
-            geomBuffer,
+            geom_buffer,
             num_rendered,
-            binningBuffer,
-            imgBuffer,
+            binning_buffer,
+            img_buffer,
             raster_settings.debug,
         )
 
         # Compute gradients for relevant tensors by invoking backward method
         if raster_settings.debug:
             cpu_args = RasterizeGaussiansFunction._cpu_deep_copy_tuple(
-                args
+                input_tuple=args
             )  # Copy them before they can be corrupted
             try:
                 (
@@ -200,14 +201,14 @@ class RasterizeGaussiansFunction(torch.autograd.Function):
 
 
 class GaussianRasterizationSettings(typing.NamedTuple):
-    image_height: int
-    image_width: int
+    img_h: int
+    img_w: int
     tanfovx: float
     tanfovy: float
     bg: torch.Tensor
     scale_modifier: float
-    viewmatrix: torch.Tensor
-    projmatrix: torch.Tensor
+    view_matrix: torch.Tensor
+    proj_matrix: torch.Tensor
     sh_degree: int
     campos: torch.Tensor
     prefiltered: bool
@@ -270,3 +271,136 @@ class GaussianRasterizer(torch.nn.Module):
             cov3D_precomp,
             raster_settings,
         )
+
+
+class GaussianRasterizerWrapper(torch.nn.Module):
+    # Carving flowers on a mountain of dung code.
+    #
+    # This class is a wrapper for the GaussianRasterizer class.
+    # It is used to port for the GaussianCity project.
+    def __init__(self, K, z_near=0.01, z_far=50000.0, device=torch.device("cuda")):
+        super(GaussianRasterizerWrapper, self).__init__()
+        self.K = K
+        self.z_near = z_near
+        self.z_far = z_far
+        self.device = device
+        self.sensor_size = (int(K[0, 2]) * 2, int(K[1, 2]) * 2)  # (w, h)
+
+    def get_gaussian_rasterizer(self, cam_position, cam_quaternion):
+        # cam_position in (tx, ty, tz)
+        # cam_quaternion in (qx, qy, qz, qw)
+        return GaussianRasterizer(
+            raster_settings=self._get_gaussian_rasterization_settings(
+                cam_position, cam_quaternion
+            )
+        )
+
+    def forward(
+        self, points, cam_position=None, cam_quaternion=None, gaussian_rasterizer=None
+    ):
+        # points: [B, N, M], M -> 0:3 xyz, 3:4 opacity, 4:7 scale, 7:11 rotation, 11:14 shs
+        if gaussian_rasterizer is None:
+            gaussian_rasterizer = self.get_gaussian_rasterizer(
+                cam_position, cam_quaternion
+            )
+        return self._get_gaussian_rasterization(points, gaussian_rasterizer)
+
+    def _intrinsic_to_fov(self):
+        # graphdeco-inria/gaussian-splatting/utils/graphics_utils.py#L76
+        fx, fy = self.K[0, 0], self.K[1, 1]
+        fov_x = 2 * np.arctan2(self.sensor_size[0], (2 * fx))
+        fov_y = 2 * np.arctan2(self.sensor_size[1], (2 * fy))
+        return fov_x, fov_y
+
+    def _get_projection_matrix(self):
+        fx = self.K[0, 0]
+        fy = self.K[1, 1]
+        cx = self.K[0, 2]
+        cy = self.K[1, 2]
+        img_w = cx * 2
+        img_h = cy * 2
+
+        P = np.zeros((4, 4), dtype=np.float32)
+        P[0, 0] = 2.0 * fx / img_w
+        P[1, 1] = 2.0 * fy / img_h
+        P[0, 2] = (2.0 * cx / img_w) - 1.0
+        P[1, 2] = (2.0 * cy / img_h) - 1.0
+        P[2, 2] = -(self.z_far + self.z_near) / (self.z_far - self.z_near)
+        P[3, 2] = -1.0
+        P[2, 3] = -2.0 * self.z_far * self.z_near / (self.z_far - self.z_near)
+        return torch.from_numpy(P).to(self.device)
+
+    def _get_w2c_matrix(self, cam_position, cam_quaternion):
+        if type(cam_position) is torch.Tensor:
+            cam_position = cam_position.cpu().numpy()
+        if type(cam_quaternion) is torch.Tensor:
+            cam_quaternion = cam_quaternion.cpu().numpy()
+
+        R = scipy.spatial.transform.Rotation.from_quat(cam_quaternion).as_matrix()
+        # look_at = cam_position + R[:3, 0]
+        R = R[:, [1, 2, 0]]  # [F|R|U] -> [R|U|F]
+        # graphdeco-inria/gaussian-splatting/blob/main/scene/cameras.py#L31
+        # The w2c matrix
+        Rt = np.zeros((4, 4), dtype=np.float32)
+        Rt[:3, :3] = R.transpose()
+        Rt[:3, [3]] = -R.transpose() @ cam_position[:, None]
+        Rt[3, 3] = 1.0
+        # The c2w matrix
+        # Rt[:3, :3] = R
+        # Rt[:3, 3] = cam_position
+        # Rt[3, 3] = 1.0
+        return torch.from_numpy(Rt).to(self.device)
+
+    def _world_to_pixel(self, world_coords, w2c):
+        # NOTE: The function is used to debug whether the w2c matrix is correct.
+        # Convert world coordinates to camera coordinates using the inverse of w2c
+        # camera_coords = np.dot(np.linalg.inv(c2w[:3, :3]), (world_coords- w2c[:3, 3]))
+        camera_coords = np.dot(w2c[:3, :3], world_coords) + w2c[:3, 3]
+        # Apply the camera intrinsic matrix K to obtain normalized image coordinates
+        homogeneous_coords = np.dot(self.K, camera_coords)
+        # Normalize homogeneous coordinates
+        normalized_coords = homogeneous_coords / homogeneous_coords[2]
+        # Convert normalized coordinates to pixel coordinates
+        return normalized_coords[:2].astype(int)
+
+    def _get_gaussian_rasterization_settings(self, cam_position, cam_quaternion):
+        BG_COLOR = torch.tensor(
+            [0.0, 0.0, 0.0], dtype=torch.float32, device=self.device
+        )
+        fov_x, fov_y = self._intrinsic_to_fov()
+        w2c = self._get_w2c_matrix(cam_position, cam_quaternion).transpose(0, 1)
+        prj_mtx = self._get_projection_matrix().transpose(0, 1)
+
+        return GaussianRasterizationSettings(
+            img_h=self.sensor_size[1],
+            img_w=self.sensor_size[0],
+            tanfovx=math.tan(fov_x * 0.5),
+            tanfovy=math.tan(fov_y * 0.5),
+            bg=BG_COLOR,
+            scale_modifier=1.0,
+            view_matrix=w2c,
+            proj_matrix=w2c @ prj_mtx,
+            sh_degree=0,
+            campos=w2c.inverse()[3, :3],
+            prefiltered=False,
+            debug=False,
+        )
+
+    def _get_gaussian_rasterization(self, points, rasterizer):
+        xyz = points[:, 0:3]
+        opacity = points[:, 3:4]
+        scales = points[:, 4:7]
+        rotations = points[:, 7:11]
+        rgbs = points[:, 11:]
+
+        rendered_image, _ = rasterizer(
+            means3D=xyz,
+            means2D=torch.zeros_like(xyz, dtype=torch.float32, device=self.device),
+            shs=None,
+            colors_precomp=rgbs,
+            opacities=opacity,
+            scales=scales,
+            rotations=rotations,
+            cov3D_precomp=None,
+        )
+        return rendered_image
