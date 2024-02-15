@@ -4,12 +4,12 @@
 # @Author: Inria <george.drettakis@inria.fr>
 # @Date:   2024-01-31 19:07:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-15 09:29:29
+# @Last Modified at: 2024-02-15 13:18:12
 # @Email:  root@haozhexie.com
 
 import math
 import numpy as np
-import scipy
+import scipy.spatial.transform
 import torch
 import typing
 
@@ -284,7 +284,10 @@ class GaussianRasterizerWrapper(torch.nn.Module):
         self.z_near = z_near
         self.z_far = z_far
         self.device = device
+        # Shared camera parameters
         self.sensor_size = (int(K[0, 2]) * 2, int(K[1, 2]) * 2)  # (w, h)
+        self.fov_x, self.fov_y = self._intrinsic_to_fov()
+        self.P = self._get_projection_matrix()
 
     def get_gaussian_rasterizer(self, cam_position, cam_quaternion):
         # cam_position in (tx, ty, tz)
@@ -298,11 +301,15 @@ class GaussianRasterizerWrapper(torch.nn.Module):
     def forward(
         self, points, cam_position=None, cam_quaternion=None, gaussian_rasterizer=None
     ):
-        # points: [B, N, M], M -> 0:3 xyz, 3:4 opacity, 4:7 scale, 7:11 rotation, 11:14 shs
+        # points: [N, M], M -> 0:3 xyz, 3:4 opacity, 4:7 scale, 7:11 rotation, 11:14 rgbs
+        _, M = points.shape
+        assert M == 14, "The input tensor should have 14 channels."
+
         if gaussian_rasterizer is None:
             gaussian_rasterizer = self.get_gaussian_rasterizer(
                 cam_position, cam_quaternion
             )
+
         return self._get_gaussian_rasterization(points, gaussian_rasterizer)
 
     def _intrinsic_to_fov(self):
@@ -317,14 +324,12 @@ class GaussianRasterizerWrapper(torch.nn.Module):
         fy = self.K[1, 1]
         cx = self.K[0, 2]
         cy = self.K[1, 2]
-        img_w = cx * 2
-        img_h = cy * 2
 
         P = np.zeros((4, 4), dtype=np.float32)
-        P[0, 0] = 2.0 * fx / img_w
-        P[1, 1] = 2.0 * fy / img_h
-        P[0, 2] = (2.0 * cx / img_w) - 1.0
-        P[1, 2] = (2.0 * cy / img_h) - 1.0
+        P[0, 0] = 2.0 * fx / self.sensor_size[0]
+        P[1, 1] = 2.0 * fy / self.sensor_size[1]
+        P[0, 2] = (2.0 * cx / self.sensor_size[0]) - 1.0
+        P[1, 2] = (2.0 * cy / self.sensor_size[1]) - 1.0
         P[2, 2] = -(self.z_far + self.z_near) / (self.z_far - self.z_near)
         P[3, 2] = -1.0
         P[2, 3] = -2.0 * self.z_far * self.z_near / (self.z_far - self.z_near)
@@ -354,8 +359,8 @@ class GaussianRasterizerWrapper(torch.nn.Module):
     def _world_to_pixel(self, world_coords, w2c):
         # NOTE: The function is used to debug whether the w2c matrix is correct.
         # Convert world coordinates to camera coordinates using the inverse of w2c
-        # camera_coords = np.dot(np.linalg.inv(c2w[:3, :3]), (world_coords- w2c[:3, 3]))
         camera_coords = np.dot(w2c[:3, :3], world_coords) + w2c[:3, 3]
+        # camera_coords = np.dot(np.linalg.inv(c2w[:3, :3]), (world_coords- w2c[:3, 3]))
         # Apply the camera intrinsic matrix K to obtain normalized image coordinates
         homogeneous_coords = np.dot(self.K, camera_coords)
         # Normalize homogeneous coordinates
@@ -367,15 +372,14 @@ class GaussianRasterizerWrapper(torch.nn.Module):
         BG_COLOR = torch.tensor(
             [0.0, 0.0, 0.0], dtype=torch.float32, device=self.device
         )
-        fov_x, fov_y = self._intrinsic_to_fov()
         w2c = self._get_w2c_matrix(cam_position, cam_quaternion).transpose(0, 1)
-        prj_mtx = self._get_projection_matrix().transpose(0, 1)
+        prj_mtx = self.P.transpose(0, 1)
 
         return GaussianRasterizationSettings(
             img_h=self.sensor_size[1],
             img_w=self.sensor_size[0],
-            tanfovx=math.tan(fov_x * 0.5),
-            tanfovy=math.tan(fov_y * 0.5),
+            tanfovx=math.tan(self.fov_x * 0.5),
+            tanfovy=math.tan(self.fov_y * 0.5),
             bg=BG_COLOR,
             scale_modifier=1.0,
             view_matrix=w2c,
@@ -390,7 +394,7 @@ class GaussianRasterizerWrapper(torch.nn.Module):
         xyz = points[:, 0:3]
         opacity = points[:, 3:4]
         scales = points[:, 4:7]
-        rotations = points[:, 7:11]
+        quaternion = points[:, 7:11]
         rgbs = points[:, 11:]
 
         rendered_image, _ = rasterizer(
@@ -400,7 +404,7 @@ class GaussianRasterizerWrapper(torch.nn.Module):
             colors_precomp=rgbs,
             opacities=opacity,
             scales=scales,
-            rotations=rotations,
+            rotations=quaternion,
             cov3D_precomp=None,
         )
         return rendered_image
