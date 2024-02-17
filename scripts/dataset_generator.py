@@ -4,16 +4,19 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-14 17:04:54
+# @Last Modified at: 2024-02-17 19:42:08
 # @Email:  root@haozhexie.com
 
 import argparse
+import csv
+import cv2
+import json
 import logging
 import logging.config
+import math
 import numpy as np
 import os
 import pickle
-import scipy
 import sys
 import torch
 
@@ -56,6 +59,7 @@ CLASSES = {
     },
 }
 
+# Should be aligned with Houdini Settings
 SCALES = {
     "ROAD": 10,
     "FWY_DECK": 10,
@@ -70,7 +74,9 @@ SCALES = {
 }
 
 CONSTANTS = {
+    "SCALE": 20,  # 5x -> 1m (100 cm): 5 pixels
     "MAP_SIZE": 24576,
+    "PATCH_SIZE": 5000,
     "BLDG_INS_MIN_ID": 100,
     "CAR_INS_MIN_ID": 5000,
 }
@@ -124,6 +130,7 @@ def _get_get_points_projection(points):
         s = SCALES[c_name]
         x += CONSTANTS["MAP_SIZE"] // 2
         y += CONSTANTS["MAP_SIZE"] // 2
+
         pts_map[y, x] = True
         if tpd_hf[y, x] < z:
             tpd_hf[y : y + s, x : x + s] = z
@@ -200,43 +207,132 @@ def load_projections(output_dir):
     return projections
 
 
-def get_points_from_projections(projections, cx=None, cy=None, size=None):
+def get_local_projection_cords(cam_pos, cam_look_at, patch_size, fov_rad):
+    # cam_pos: (x1, y1); cam_look_at: (x2, y2)
+    # This patch has four edges (E1, E2, E3, and E4) arranged clockwise.
+    # (x1, y1) is on the center of E1. (x3, y3) is on the center of E3.
+    x1, y1, x2, y2 = cam_pos[0], cam_pos[1], cam_look_at[0], cam_look_at[1]
+    dist = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+    dx, dy = (x2 - x1) / dist, (y2 - y1) / dist
+    x3, y3 = x1 + dx * patch_size, y1 + dy * patch_size
+    # L1: the line connecting (x1, y1) and (x3, y3) -> y = kl1 * x + bl1
+    # E3: the edge connecting (x3, y3) and (x4, y4), perpendicular to L1. ->
+    # y = ke3 * x + be3, where ke3 = -1 / kl1
+    kl1 = (y3 - y1) / (x3 - x1) if x3 != x1 else float("inf")
+    ke3 = -1 / kl1 if kl1 != 0 else float("inf")
+    be3 = y3 - ke3 * x3
+    # L2: the line connecting (x1, y1) and (x4, y4); L3: the line connecting (x1, y1) and (x5, y5)
+    # (x4, y4) and (x5, y5) are the two endpoints of E3, respectively.
+    # L2 -> y = kl2 * x + bl2; L3 -> y = kl3 * x + bl3
+    kl2 = math.tan(math.atan(kl1) + fov_rad)
+    bl2 = y1 - kl2 * x1
+    kl4 = math.tan(math.atan(kl1) - fov_rad)
+    bl4 = y1 - kl4 * x1
+    x4 = (bl2 - be3) / (ke3 - kl2)
+    y4 = kl2 * x4 + bl2
+    assert abs(y4 - ke3 * x4 - be3) < 1e-6
+    x5 = (bl4 - be3) / (ke3 - kl4)
+    y5 = kl4 * x5 + bl4
+    assert abs(y5 - ke3 * x5 - be3) < 1e-6
+    assert (x4 + x5) / 2 - x3 < 1e-6 and (y4 + y5) / 2 - y3 < 1e-6
+    # (x6, y6) is the center of the rectangle
+    x6, y6 = (x1 + x3) / 2, (y1 + y3) / 2
+    # (x7, y7) and (x8, y8) are the two endpoints of E1, respectively.
+    x7, y7 = 2 * x6 - x4, 2 * y6 - y4
+    x8, y8 = 2 * x6 - x5, 2 * y6 - y5
+    assert (x7 + x8) / 2 - x1 < 1e-6 and (y7 + y8) / 2 - y1 < 1e-6
+    return np.array([(x1, y1), (x4, y4), (x5, y5), (x7, y7), (x8, y8)], dtype=np.int16)
+
+
+def get_points_from_projections(projections, local_cords=None):
     # XYZ, Scale, Instance ID
     points = np.empty((0, 5), dtype=np.int16)
     for c, p in projections.items():
-        _points = _get_points_from_projection(p, cx, cy, size)
+        _points = _get_points_from_projection(p, local_cords)
         if _points is not None:
             points = np.concatenate((points, _points), axis=0)
             logging.debug(
                 "Category: %s: #Points: %d, Min/Max Value: (%d, %d)"
                 % (c, len(_points), np.min(_points), np.max(_points))
             )
-
     logging.debug("#Points: %d" % (len(points)))
     return points
 
 
-def _get_points_from_projection(projection, cx=None, cy=None, size=None):
-    if cx is not None and cy is not None and size is not None:
+def _get_points_from_projection(projection, local_cords=None):
+    if local_cords is not None:
+        # local_cords contains 5 points
+        # The first three points denotes the triangle of view frustum projection
+        # The last four points denotes the minimum rectangle of the view frustum projection
+        min_x = math.floor(np.min(local_cords[:, 0]))
+        max_x = math.ceil(np.max(local_cords[:, 0]))
+        min_y = math.floor(np.min(local_cords[:, 1]))
+        max_y = math.ceil(np.max(local_cords[:, 1]))
+
+        _projection = {}
         for c, p in projection.items():
-            projection[c] = np.ascontiguousarray(
-                p[cy - size // 2 : cy + size // 2, cx - size // 2 : cx + size // 2]
-            )
+            # The smallest bounding box of the minimum rectangle
+            _projection[c] = np.ascontiguousarray(p[min_y:max_y, min_x:max_x])
+            if c == "PTS":
+                mask = np.zeros_like(_projection[c], dtype=np.int32)
+                cv2.fillPoly(
+                    mask,
+                    [np.array(local_cords - np.array([min_x, min_y]), dtype=np.int32)],
+                    1,
+                )
+                _projection[c] *= mask
 
     points = footprint_extruder.get_points_from_projection(
         {v: k for k, v in CLASSES["GAUSSIAN"].items()},
         SCALES,
-        projection["SEG"],
-        projection["TD_HF"],
-        projection["BU_HF"],
-        projection["PTS"].astype(bool),
+        _projection["SEG"],
+        _projection["TD_HF"],
+        _projection["BU_HF"],
+        _projection["PTS"].astype(bool),
     )
-    if points is not None:
+    if points is not None and local_cords is not None:
         # Recover the XY coordinates before cropping
-        points[:, 0] += cx - size // 2
-        points[:, 1] += cy - size // 2
+        points[:, 0] += min_x
+        points[:, 1] += min_y
 
     return points
+
+
+def get_scales(points):
+    classes = points[:, 4]
+    scales = np.ones((points.shape[0], 3), dtype=np.float32) * points[:, [3]]
+    # Set the z-scale = 1 for roads, zones, and waters
+    scales[:, 2][
+        np.isin(
+            classes,
+            [
+                CLASSES["GAUSSIAN"]["ROAD"],
+                CLASSES["GAUSSIAN"]["WATER"],
+                CLASSES["GAUSSIAN"]["ZONE"],
+            ],
+        )
+    ] = 1
+    return scales
+
+
+def get_sky_points(far_plane, cam_z, cam_fov_y):
+    points = []
+    # Determine the border of sky
+    sky_height = CONSTANTS["PATCH_SIZE"] * math.tan(cam_fov_y)
+    z_min = math.floor(max(0, cam_z - sky_height))
+    z_max = math.ceil(cam_z + sky_height)
+    dist = np.linalg.norm(far_plane[0] - far_plane[1])
+    n_plane_segs = math.ceil(dist / SCALES["SKY"])
+    slope = (far_plane[1] - far_plane[0]) / dist
+    # Generate sky points
+    for i in range(n_plane_segs):
+        x = far_plane[0, 0] + i * SCALES["SKY"] * slope[0]
+        y = far_plane[0, 1] + i * SCALES["SKY"] * slope[1]
+        for z in range(z_min, z_max + 1, SCALES["SKY"]):
+            points.append([x, y, z, SCALES["SKY"], CLASSES["GAUSSIAN"]["SKY"]])
+
+    logging.debug("#Sky points: %d" % (len(points)))
+    return np.array(points, dtype=np.int16)
 
 
 def main(data_dir, seg_map_file_pattern, gpus, is_debug):
@@ -281,47 +377,83 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
         proj_dir = os.path.join(city_dir, "Projection")
         dump_projections(projections, proj_dir, is_debug)
 
-        # Debug: Load projection caches without computing
+        # # Debug: Load projection caches without computing
         # logging.info("loading projections...")
         # proj_dir = os.path.join(city_dir, "Projection")
         # projections = load_projections(proj_dir)
+        # with open("/tmp/projections.pkl", "wb") as fp:
+        #     pickle.dump(projections, fp)
+        # with open("/tmp/projections.pkl", "rb") as fp:
+        #     projections = pickle.load(fp)
 
-        # logging.info("Generate initial points...")
-        cx = 12500
-        cy = 12500
-        size = 1024
-        points = get_points_from_projections(projections, cx, cy, size)
-        # np.save("/tmp/points.npy", points.astype(np.int16))
+        # # Debug: Generate all initial points (casues OOM in rasterization)
+        # logging.info("Generate the initial points for the whole city...")
+        # # points[:, M] -> 0:3: XYZ, 3: Scale, 4: Instance ID
+        # points = get_points_from_projections(projections)
 
-        # Debug: Load generated initial points without computing
-        # points = np.load("/tmp/points.npy")
-        # points[:, M] -> 0:3: XYZ, 3: Scale, 4: Instance ID
-        xyz = points[:, :3]
-        rgbs = utils.helpers.get_ins_colors(points[:, 4])
-        opacity = np.ones((xyz.shape[0], 1))
-        scales = np.ones((xyz.shape[0], 3)) * points[:, [3]]
-        rotations = np.zeros((xyz.shape[0], 3))
-
-        # Debug: Point Cloud Visualization
+        # # Debug: Point Cloud Visualization
         # logging.info("Saving the generated point cloud...")
+        # xyz = points[:, :3]
+        # rgbs = utils.helpers.get_ins_colors(points[:, 4])
         # utils.helpers.dump_ptcloud_ply("/tmp/points.ply", xyz, rgbs)
 
-        points = np.concatenate((xyz, rgbs, opacity, scales, rotations), axis=1)
-        # Align with camera poses
-        # K = np.array(
-        #     [2828.2831640142235, 0, 960, 0, 2828.2831640142235, 540, 0, 0, 1],
-        # ).reshape(3, 3)
-        # cam_pos = np.array([109222.828125, 113239.468750, 11883.736328]) / 20
-        # cam_pos[0] += CONSTANTS["MAP_SIZE"] // 2
-        # cam_pos[1] += CONSTANTS["MAP_SIZE"] // 2
-        # cam_quat = np.array([0.004837, 0.002004, -0.923861, 0.382692])
-        # gr = dgr.GaussianRasterizerWrapper(K, device=torch.device("cuda"))
-        # with torch.no_grad():
-        #     img = gr(torch.from_numpy(points).float().cuda(), cam_pos, cam_quat)
-        #     import matplotlib.pyplot as plt
+        # Load camera parameters
+        with open(os.path.join(city_dir, "CameraRig.json")) as fp:
+            cam_rig = json.load(fp)
+            cam_rig = cam_rig["cameras"]["CameraComponent"]
 
-        #     plt.imshow(img.cpu().numpy().squeeze().transpose(1, 2, 0))
-        #     plt.savefig("output/test.jpg")
+        rows = []
+        with open(os.path.join(city_dir, "CameraPoses.csv")) as fp:
+            reader = csv.DictReader(fp)
+            rows = [r for r in reader]
+
+        # Initialize the gaussian rasterizer
+        fov_x = utils.helpers.intrinsic_to_fov(
+            cam_rig["intrinsics"][0], cam_rig["sensor_size"][0]
+        )
+        fov_y = utils.helpers.intrinsic_to_fov(
+            cam_rig["intrinsics"][4], cam_rig["sensor_size"][1]
+        )
+        logging.debug(
+            "Camera FOV: (%.2f, %.2f) deg." % (np.rad2deg(fov_x), np.rad2deg(fov_y))
+        )
+        gr = dgr.GaussianRasterizerWrapper(
+            np.array(cam_rig["intrinsics"], dtype=np.float32).reshape((3, 3)),
+            device=torch.device("cuda"),
+        )
+
+        for r in tqdm(rows, desc="Rendering Gaussian Points"):
+            cam_quat = np.array([r["qx"], r["qy"], r["qz"], r["qw"]], dtype=np.float32)
+            cam_pos = (
+                np.array([r["tx"], r["ty"], r["tz"]], dtype=np.float32)
+                / CONSTANTS["SCALE"]
+            )
+            cam_pos[0] += CONSTANTS["MAP_SIZE"] // 2
+            cam_pos[1] += CONSTANTS["MAP_SIZE"] // 2
+            cam_look_at = utils.helpers.get_camera_look_at(cam_pos, cam_quat)
+            logging.debug("Current Camera: %s, Look at: %s" % (cam_pos, cam_look_at))
+            local_cords = get_local_projection_cords(
+                cam_pos, cam_look_at, CONSTANTS["PATCH_SIZE"], fov_x / 1.5
+            )
+            points = get_points_from_projections(projections, local_cords)
+            sky_points = get_sky_points(local_cords[1:3], cam_pos[2], fov_y / 2)
+            points = np.concatenate((points, sky_points), axis=0)
+
+            xyz = points[:, :3]
+            rgbs = utils.helpers.get_ins_colors(points[:, 4]).astype(np.float32) / 255.0
+            opacity = np.ones((xyz.shape[0], 1))
+            scales = get_scales(points)
+            rotations = np.concatenate(
+                (np.ones((xyz.shape[0], 1)), np.zeros((xyz.shape[0], 3))), axis=1
+            )
+            points = np.concatenate((xyz, opacity, scales, rotations, rgbs), axis=1)
+            with torch.no_grad():
+                img = gr(torch.from_numpy(points).float().cuda(), cam_pos, cam_quat)
+                img = (img.cpu().numpy() * 255).astype(np.uint8)
+                cv2.imwrite(
+                    "output/test.jpg",
+                    img.squeeze().transpose(1, 2, 0)[..., ::-1],
+                )
 
 
 if __name__ == "__main__":

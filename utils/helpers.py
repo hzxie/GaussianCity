@@ -4,11 +4,12 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-13 09:47:08
+# @Last Modified at: 2024-02-15 14:52:14
 # @Email:  root@haozhexie.com
 
 import numpy as np
 import plyfile
+import scipy.spatial.transform
 import torch
 
 from PIL import Image
@@ -145,6 +146,15 @@ def tensor_to_image(tensor, mode):
         return tensor.squeeze().transpose((1, 2, 0)) / 2 + 0.5
     else:
         raise Exception("Unknown mode: %s" % mode)
+
+
+def intrinsic_to_fov(focal_length, img_size):
+    return 2 * np.arctan2(img_size, (2 * focal_length))
+
+
+def get_camera_look_at(cam_position, cam_quaternion, step=1000):
+    mat3 = scipy.spatial.transform.Rotation.from_quat(cam_quaternion).as_matrix()
+    return cam_position + mat3[:3, 0] * step
 
 
 def dump_ptcloud_ply(ply_fpath, xyz, rgb, attrs={}):

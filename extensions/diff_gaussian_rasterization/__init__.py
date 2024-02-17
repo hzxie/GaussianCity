@@ -4,7 +4,7 @@
 # @Author: Inria <george.drettakis@inria.fr>
 # @Date:   2024-01-31 19:07:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-15 13:18:12
+# @Last Modified at: 2024-02-17 16:39:09
 # @Email:  root@haozhexie.com
 
 import math
@@ -407,4 +407,6 @@ class GaussianRasterizerWrapper(torch.nn.Module):
             rotations=quaternion,
             cov3D_precomp=None,
         )
-        return rendered_image
+        # Horizontally flip the rendered image
+        # Left-handed coordinate system to right-handed coordinate system
+        return torch.flip(rendered_image, dims=[2])
