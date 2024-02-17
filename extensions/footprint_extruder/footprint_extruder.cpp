@@ -3,7 +3,7 @@
  * @Author: Haozhe Xie
  * @Date:   2024-02-12 13:07:49
  * @Last Modified by: Haozhe Xie
- * @Last Modified at: 2024-02-14 18:43:15
+ * @Last Modified at: 2024-02-17 20:35:12
  * @Email:  root@haozhexie.com
  *
  * References:
@@ -132,7 +132,7 @@ inline bool isBorder(short x, short y, short z, short height, short width,
   if (z == btmUpHgtFld[idx] || z == tpDwnHgtFld[idx]) {
     return true;
   }
-  if (x == 0 || x == width - scale - 1 || y == 0 || y == height - scale - 1) {
+  if (x == 0 || x >= width - scale - 1 || y == 0 || y >= height - scale - 1) {
     return true;
   }
   return !isNeighboringValueSame(segMap, x, y, width, scale) ||

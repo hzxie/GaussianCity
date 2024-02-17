@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-17 19:42:08
+# @Last Modified at: 2024-02-17 20:38:02
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -75,6 +75,7 @@ SCALES = {
 
 CONSTANTS = {
     "SCALE": 20,  # 5x -> 1m (100 cm): 5 pixels
+    "WATER_Z": -17.5,
     "MAP_SIZE": 24576,
     "PATCH_SIZE": 5000,
     "BLDG_INS_MIN_ID": 100,
@@ -207,7 +208,7 @@ def load_projections(output_dir):
     return projections
 
 
-def get_local_projection_cords(cam_pos, cam_look_at, patch_size, fov_rad):
+def get_view_frustum_cords(cam_pos, cam_look_at, patch_size, fov_rad):
     # cam_pos: (x1, y1); cam_look_at: (x2, y2)
     # This patch has four edges (E1, E2, E3, and E4) arranged clockwise.
     # (x1, y1) is on the center of E1. (x3, y3) is on the center of E3.
@@ -255,6 +256,12 @@ def get_points_from_projections(projections, local_cords=None):
                 "Category: %s: #Points: %d, Min/Max Value: (%d, %d)"
                 % (c, len(_points), np.min(_points), np.max(_points))
             )
+        # Move the water plane to -3.5m, which is aligned with CitySample.
+        if c == "REST":
+            points[:, 2][points[:, 4] == CLASSES["GAUSSIAN"]["WATER"]] = CONSTANTS[
+                "WATER_Z"
+            ]
+
     logging.debug("#Points: %d" % (len(points)))
     return points
 
@@ -432,8 +439,12 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             cam_pos[1] += CONSTANTS["MAP_SIZE"] // 2
             cam_look_at = utils.helpers.get_camera_look_at(cam_pos, cam_quat)
             logging.debug("Current Camera: %s, Look at: %s" % (cam_pos, cam_look_at))
-            local_cords = get_local_projection_cords(
-                cam_pos, cam_look_at, CONSTANTS["PATCH_SIZE"], fov_x / 1.5
+            local_cords = get_view_frustum_cords(
+                cam_pos,
+                cam_look_at,
+                CONSTANTS["PATCH_SIZE"],
+                # TODO: 1.5 -> 2.0. But 2.0 causes incomplete rendering.
+                fov_x / 1.5,
             )
             points = get_points_from_projections(projections, local_cords)
             sky_points = get_sky_points(local_cords[1:3], cam_pos[2], fov_y / 2)
@@ -451,7 +462,7 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
                 img = gr(torch.from_numpy(points).float().cuda(), cam_pos, cam_quat)
                 img = (img.cpu().numpy() * 255).astype(np.uint8)
                 cv2.imwrite(
-                    "output/test.jpg",
+                    "output/render/%04d.jpg" % int(r["id"]),
                     img.squeeze().transpose(1, 2, 0)[..., ::-1],
                 )
 
