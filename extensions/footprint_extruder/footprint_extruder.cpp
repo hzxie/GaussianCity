@@ -3,7 +3,7 @@
  * @Author: Haozhe Xie
  * @Date:   2024-02-12 13:07:49
  * @Last Modified by: Haozhe Xie
- * @Last Modified at: 2024-02-17 20:35:12
+ * @Last Modified at: 2024-02-19 11:05:15
  * @Email:  root@haozhexie.com
  *
  * References:
@@ -126,10 +126,10 @@ inline bool isNeighboringValueSame(const short *map, short x, short y,
 }
 
 inline bool isBorder(short x, short y, short z, short height, short width,
-                     short scale, const short *segMap, const short *tpDwnHgtFld,
-                     const short *btmUpHgtFld) {
+                     short scale, bool incBtmPts, const short *segMap,
+                     const short *tpDwnHgtFld, const short *btmUpHgtFld) {
   int idx = getArrayIndex(y, x, width);
-  if (z == btmUpHgtFld[idx] || z == tpDwnHgtFld[idx]) {
+  if (z == tpDwnHgtFld[idx] || (z == btmUpHgtFld[idx] && incBtmPts)) {
     return true;
   }
   if (x == 0 || x >= width - scale - 1 || y == 0 || y >= height - scale - 1) {
@@ -140,20 +140,23 @@ inline bool isBorder(short x, short y, short z, short height, short width,
 }
 
 static PyObject *getPointsFromProjection(PyObject *self, PyObject *args) {
+  PyObject *pyIncBtmPts;
   PyObject *pyClasses;
   PyObject *pyScales;
   PyArrayObject *pySegMap;
   PyArrayObject *pyTpDwnHgtFld;
   PyArrayObject *pyBtmUpHgtFld;
   PyArrayObject *pyPtsMap;
-  if (!PyArg_ParseTuple(args, "O!O!O!O!O!O!", &PyDict_Type, &pyClasses,
-                        &PyDict_Type, &pyScales, &PyArray_Type, &pySegMap,
-                        &PyArray_Type, &pyTpDwnHgtFld, &PyArray_Type,
-                        &pyBtmUpHgtFld, &PyArray_Type, &pyPtsMap)) {
+  if (!PyArg_ParseTuple(args, "O!O!O!O!O!O!O!", &PyBool_Type, &pyIncBtmPts,
+                        &PyDict_Type, &pyClasses, &PyDict_Type, &pyScales,
+                        &PyArray_Type, &pySegMap, &PyArray_Type, &pyTpDwnHgtFld,
+                        &PyArray_Type, &pyBtmUpHgtFld, &PyArray_Type,
+                        &pyPtsMap)) {
     return NULL;
   }
 
   // NOTE: The last two dummy parameters are used for overloading
+  bool incBtmPts = PyObject_IsTrue(pyIncBtmPts);
   auto classes =
       getMapFromPyObject<short, std::string>(pyClasses, 0, std::string());
   auto scales =
@@ -185,8 +188,8 @@ static PyObject *getPointsFromProjection(PyObject *self, PyObject *args) {
       short scale = scales[classes[semanticID]];
       for (short k = btmUpHgtFld[idx]; k <= tpDwnHgtFld[idx]; k += scale) {
         // Make all objects hallow
-        if (!isBorder(j, i, k, height, width, scale, segMap, tpDwnHgtFld,
-                      btmUpHgtFld)) {
+        if (!isBorder(j, i, k, height, width, scale, incBtmPts, segMap,
+                      tpDwnHgtFld, btmUpHgtFld)) {
           continue;
         }
         // Building Roof Handler (Recover roof instance ID)
