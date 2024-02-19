@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-17 20:38:02
+# @Last Modified at: 2024-02-19 21:07:22
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -249,7 +249,8 @@ def get_points_from_projections(projections, local_cords=None):
     # XYZ, Scale, Instance ID
     points = np.empty((0, 5), dtype=np.int16)
     for c, p in projections.items():
-        _points = _get_points_from_projection(p, local_cords)
+        # Ignore bottom points for objects in the rest maps due to invisibility.
+        _points = _get_points_from_projection(p, local_cords, c != "REST")
         if _points is not None:
             points = np.concatenate((points, _points), axis=0)
             logging.debug(
@@ -266,7 +267,8 @@ def get_points_from_projections(projections, local_cords=None):
     return points
 
 
-def _get_points_from_projection(projection, local_cords=None):
+def _get_points_from_projection(projection, local_cords=None, include_btm_pts=True):
+    _projection = projection
     if local_cords is not None:
         # local_cords contains 5 points
         # The first three points denotes the triangle of view frustum projection
@@ -290,6 +292,7 @@ def _get_points_from_projection(projection, local_cords=None):
                 _projection[c] *= mask
 
     points = footprint_extruder.get_points_from_projection(
+        include_btm_pts,
         {v: k for k, v in CLASSES["GAUSSIAN"].items()},
         SCALES,
         _projection["SEG"],
@@ -398,7 +401,7 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
         # # points[:, M] -> 0:3: XYZ, 3: Scale, 4: Instance ID
         # points = get_points_from_projections(projections)
 
-        # # Debug: Point Cloud Visualization
+        # Debug: Point Cloud Visualization
         # logging.info("Saving the generated point cloud...")
         # xyz = points[:, :3]
         # rgbs = utils.helpers.get_ins_colors(points[:, 4])
@@ -451,7 +454,12 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             points = np.concatenate((points, sky_points), axis=0)
 
             xyz = points[:, :3]
-            rgbs = utils.helpers.get_ins_colors(points[:, 4]).astype(np.float32) / 255.0
+            rgbs = (
+                utils.helpers.get_ins_colors(points[:, 4], random=False).astype(
+                    np.float32
+                )
+                / 255.0
+            )
             opacity = np.ones((xyz.shape[0], 1))
             scales = get_scales(points)
             rotations = np.concatenate(
@@ -460,11 +468,15 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             points = np.concatenate((xyz, opacity, scales, rotations, rgbs), axis=1)
             with torch.no_grad():
                 img = gr(torch.from_numpy(points).float().cuda(), cam_pos, cam_quat)
-                img = (img.cpu().numpy() * 255).astype(np.uint8)
-                cv2.imwrite(
-                    "output/render/%04d.jpg" % int(r["id"]),
-                    img.squeeze().transpose(1, 2, 0)[..., ::-1],
+                img = img.permute(1, 2, 0).cpu().numpy() * 255.0
+                ins = utils.helpers.get_ins_id(img)
+
+                Image.fromarray(ins).save(
+                    "output/render/%04d.png" % int(r["id"]),
                 )
+                Image.fromarray(
+                    utils.helpers.get_ins_seg_map.r_palatte[ins],
+                ).save("output/render/%04d.jpg" % int(r["id"]))
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-15 14:52:14
+# @Last Modified at: 2024-02-19 21:00:48
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -71,28 +71,56 @@ def get_seg_map(seg_map):
     return seg_map
 
 
-def get_ins_seg_map_palette(legacy_palette):
-    MAX_N_INSTANCES = 32768
-    # Make sure that the roof colors are similar to the corresponding facade colors.
-    # The odd and even indexes are reserved for roof and facade, respectively.
-    palatte0 = np.random.randint(256, size=(MAX_N_INSTANCES, 3))
-    palatte1 = palatte0 * 0.6
-
-    palatte = np.concatenate((palatte0, palatte1), axis=1)
-    palatte = palatte0
-    palatte = palatte.reshape(-1, 3)
-    palatte[:9] = legacy_palette[:9]
+def get_ins_seg_map_palette(legacy_palette, random=True):
+    MAX_N_INSTANCES = 16384
+    if random:
+        # Make sure that the roof colors are similar to the corresponding facade colors.
+        # The odd and even indexes are reserved for roof and facade, respectively.
+        palatte0 = np.random.randint(256, size=(MAX_N_INSTANCES, 3), dtype=np.uint8)
+        palatte1 = palatte0 * 0.6
+        palatte = np.concatenate((palatte0, palatte1), axis=1)
+        palatte = palatte0
+        palatte = palatte.reshape(-1, 3)
+        palatte[:9] = legacy_palette[:9]
+    else:
+        palatte = np.array(
+            [
+                [i % 4 * 64, i * 4 % 256, (i * 4 // 256) % 256]
+                for i in range(MAX_N_INSTANCES)
+            ],
+            dtype=np.uint8,
+        )
     return palatte
 
 
-@static_vars(palatte=get_ins_seg_map_palette(get_seg_map_palette()))
+def get_ins_id(img):
+    # In get_ins_seg_map_palette, the instance IDs are encoded as RGB values.
+    # The function converts the RGB values back to the instance IDs.
+    instances = img[..., 1] + img[..., 2] * 256
+    instances = np.round(instances / 4).astype(np.int16)
+    # Check CRC
+    error_idx = np.round(img[..., 0] / 64).astype(np.uint8) != instances % 4
+    instances[error_idx] = 0
+    return instances
+
+
+@static_vars(
+    r_palatte=get_ins_seg_map_palette(get_seg_map_palette(), random=True),
+    f_palatte=get_ins_seg_map_palette(get_seg_map_palette(), random=False),
+)
 def get_ins_seg_map(seg_map):
     return Image.fromarray(get_ins_colors(seg_map))
 
 
-def get_ins_colors(object):
-    # The object can be a seg_map or ptcloud.
-    return get_ins_seg_map.palatte[object].astype(np.uint8)
+def get_ins_colors(obj, random=True):
+    # NOTE: The obj can be a seg_map or ptcloud.
+    # If random is True, the instance colors are randomly generated.
+    # Otherwise, it will be generated based on the object index.
+    return (
+        get_ins_seg_map.r_palatte[obj].astype(np.uint8)
+        if random
+        else get_ins_seg_map.f_palatte[obj].astype(np.uint8)
+    )
 
 
 def masks_to_onehots(masks, n_class, ignored_classes=[]):
