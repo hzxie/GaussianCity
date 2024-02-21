@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-19 21:00:48
+# @Last Modified at: 2024-02-20 10:03:14
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -97,7 +97,7 @@ def get_ins_id(img):
     # In get_ins_seg_map_palette, the instance IDs are encoded as RGB values.
     # The function converts the RGB values back to the instance IDs.
     instances = img[..., 1] + img[..., 2] * 256
-    instances = np.round(instances / 4).astype(np.int16)
+    instances = np.round(instances / 4).astype(np.uint16)
     # Check CRC
     error_idx = np.round(img[..., 0] / 64).astype(np.uint8) != instances % 4
     instances[error_idx] = 0

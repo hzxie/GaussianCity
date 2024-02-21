@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-19 21:07:22
+# @Last Modified at: 2024-02-21 10:16:30
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -77,6 +77,8 @@ CONSTANTS = {
     "SCALE": 20,  # 5x -> 1m (100 cm): 5 pixels
     "WATER_Z": -17.5,
     "MAP_SIZE": 24576,
+    "IMAGE_WIDTH": 1920,
+    "IMAGE_HEIGHT": 1080,
     "PATCH_SIZE": 5000,
     "BLDG_INS_MIN_ID": 100,
     "CAR_INS_MIN_ID": 5000,
@@ -206,6 +208,37 @@ def load_projections(output_dir):
                 )
             )
     return projections
+
+
+def get_centers_from_projections(projections):
+    scale = 1
+    centers = {}
+    for c, p in projections.items():
+        ds_seg = p["SEG"]
+        if c == "CAR":
+            scale = 1
+        else:
+            scale = 4
+            ds_seg = cv2.resize(
+                p["SEG"],
+                dsize=(CONSTANTS["MAP_SIZE"] // scale, CONSTANTS["MAP_SIZE"] // scale),
+                interpolation=cv2.INTER_NEAREST,
+            )
+
+        instances = np.unique(ds_seg)
+        for i in tqdm(instances, leave=False, desc="Calculating centers for %s" % c):
+            contours, _ = cv2.findContours(
+                (ds_seg == i).astype(np.uint8),
+                cv2.RETR_EXTERNAL,
+                cv2.CHAIN_APPROX_SIMPLE,
+            )
+            contours = np.vstack(contours).reshape(-1, 2)
+            min_x, max_x = np.min(contours[:, 0]), np.max(contours[:, 0])
+            min_y, max_y = np.min(contours[:, 1]), np.max(contours[:, 1])
+            centers[i] = np.array(
+                [(min_x + max_x) / 2, (min_y + max_y) / 2], dtype=np.int16
+            ) * scale
+    return centers
 
 
 def get_view_frustum_cords(cam_pos, cam_look_at, patch_size, fov_rad):
@@ -396,12 +429,17 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
         # with open("/tmp/projections.pkl", "rb") as fp:
         #     projections = pickle.load(fp)
 
+        logging.info("Calculate the XY center for instances...")
+        centers = get_centers_from_projections(projections)
+        with open(os.path.join(city_dir, "CENTERS.pkl"), "wb") as fp:
+            pickle.dump(centers, fp)
+
         # # Debug: Generate all initial points (casues OOM in rasterization)
         # logging.info("Generate the initial points for the whole city...")
         # # points[:, M] -> 0:3: XYZ, 3: Scale, 4: Instance ID
         # points = get_points_from_projections(projections)
 
-        # Debug: Point Cloud Visualization
+        # # Debug: Point Cloud Visualization
         # logging.info("Saving the generated point cloud...")
         # xyz = points[:, :3]
         # rgbs = utils.helpers.get_ins_colors(points[:, 4])
@@ -411,6 +449,15 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
         with open(os.path.join(city_dir, "CameraRig.json")) as fp:
             cam_rig = json.load(fp)
             cam_rig = cam_rig["cameras"]["CameraComponent"]
+            # render images with different resolution
+            cam_rig["intrinsics"][0] /= 1920 / CONSTANTS["IMAGE_WIDTH"]
+            cam_rig["intrinsics"][4] /= 1080 / CONSTANTS["IMAGE_HEIGHT"]
+            cam_rig["intrinsics"][2] = CONSTANTS["IMAGE_WIDTH"] // 2
+            cam_rig["intrinsics"][5] = CONSTANTS["IMAGE_HEIGHT"] // 2
+            cam_rig["sensor_size"] = [
+                CONSTANTS["IMAGE_WIDTH"],
+                CONSTANTS["IMAGE_HEIGHT"],
+            ]
 
         rows = []
         with open(os.path.join(city_dir, "CameraPoses.csv")) as fp:
@@ -465,18 +512,20 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             rotations = np.concatenate(
                 (np.ones((xyz.shape[0], 1)), np.zeros((xyz.shape[0], 3))), axis=1
             )
-            points = np.concatenate((xyz, opacity, scales, rotations, rgbs), axis=1)
+            gs_points = np.concatenate((xyz, opacity, scales, rotations, rgbs), axis=1)
             with torch.no_grad():
-                img = gr(torch.from_numpy(points).float().cuda(), cam_pos, cam_quat)
+                img = gr(torch.from_numpy(gs_points).float().cuda(), cam_pos, cam_quat)
                 img = img.permute(1, 2, 0).cpu().numpy() * 255.0
                 ins = utils.helpers.get_ins_id(img)
-
+                # NOTE: The coarse instance segmentation map is used to filter invisible
+                # points during training.
                 Image.fromarray(ins).save(
                     "output/render/%04d.png" % int(r["id"]),
                 )
-                Image.fromarray(
-                    utils.helpers.get_ins_seg_map.r_palatte[ins],
-                ).save("output/render/%04d.jpg" % int(r["id"]))
+                # # Debug: visualize the instance segmentation map
+                # Image.fromarray(
+                #     utils.helpers.get_ins_seg_map.r_palatte[ins],
+                # ).save("output/render/%04d.jpg" % int(r["id"]))
 
 
 if __name__ == "__main__":
