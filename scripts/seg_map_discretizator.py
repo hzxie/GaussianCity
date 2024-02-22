@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-25 15:52:37
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 15:14:51
+# @Last Modified at: 2024-02-22 19:51:11
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -26,17 +26,26 @@ import utils.helpers
 
 def get_discrete_seg_maps(img):
     CLASSES = {
-        "Undefined": torch.tensor(
-            [255, 255, 255], dtype=torch.int16, device=img.device
+        # 0: NULL
+        "NULL": torch.tensor([0, 0, 0], dtype=torch.int16, device=img.device),
+        # 1: ROAD, FWY_DECK
+        "ROAD": torch.tensor([230, 30, 30], dtype=torch.int16, device=img.device),
+        # 2: FWY_PILLAR, FWY_BARRIER
+        "FWY": torch.tensor([220, 220, 40], dtype=torch.int16, device=img.device),
+        # 3: CAR
+        "CAR": torch.tensor([20, 220, 40], dtype=torch.int16, device=img.device),
+        # 4: WATER
+        "WATER": torch.tensor([90, 215, 215], dtype=torch.int16, device=img.device),
+        # 5: SKY
+        "SKY": torch.tensor([20, 20, 20], dtype=torch.int16, device=img.device),
+        # 6: ZONE
+        "ZONE": torch.tensor([15, 15, 200], dtype=torch.int16, device=img.device),
+        # 7: BLDG_FACADE
+        "BLDG_FACADE": torch.tensor(
+            [150, 105, 25], dtype=torch.int16, device=img.device
         ),
-        "Road": torch.tensor([255, 84, 50], dtype=torch.int16, device=img.device),
-        "Freeway": torch.tensor([230, 235, 90], dtype=torch.int16, device=img.device),
-        "Car": torch.tensor([60, 230, 110], dtype=torch.int16, device=img.device),
-        "Water": torch.tensor([140, 230, 230], dtype=torch.int16, device=img.device),
-        "Sky": torch.tensor([0, 0, 0], dtype=torch.int16, device=img.device),
-        "Ground": torch.tensor([90, 110, 240], dtype=torch.int16, device=img.device),
-        "Building": torch.tensor([180, 140, 30], dtype=torch.int16, device=img.device),
-        "Roof": torch.tensor([250, 150, 240], dtype=torch.int16, device=img.device),
+        # 8: BLDG_ROOF
+        "BLDG_ROOF": torch.tensor([230, 50, 215], dtype=torch.int16, device=img.device),
     }
     h, w, _ = img.shape
     dists = torch.zeros((h, w, len(CLASSES)))
@@ -44,6 +53,7 @@ def get_discrete_seg_maps(img):
         dists[..., idx] = torch.sum(torch.abs(img - mean_color), dim=2)
 
     dists = torch.reshape(dists, (h * w, len(CLASSES)))
+    # The undefined small objects will be assigned to random classes
     return torch.argmin(dists, dim=1).reshape(h, w).cpu().numpy()
 
 
