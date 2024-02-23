@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-23 11:05:36
+# @Last Modified at: 2024-02-23 20:13:20
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -381,6 +381,17 @@ def get_sky_points(far_plane, cam_z, cam_fov_y):
     return np.array(points, dtype=np.int16)
 
 
+def _get_seg_map_from_ins_map(ins_map):
+    ins_map[ins_map >= CONSTANTS["CAR_INS_MIN_ID"]] = CLASSES["GAUSSIAN"]["CAR"]
+    ins_map[
+        np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))
+    ] = CLASSES["GAUSSIAN"]["BLDG_ROOF"]
+    ins_map[ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]] = CLASSES["GAUSSIAN"][
+        "BLDG_FACADE"
+    ]
+    return ins_map
+
+
 def main(data_dir, seg_map_file_pattern, gpus, is_debug):
     os.environ["CUDA_VISIBLE_DEVICES"] = gpus
 
@@ -506,10 +517,6 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             points = get_points_from_projections(projections, local_cords)
             sky_points = get_sky_points(local_cords[1:3], cam_pos[2], fov_y / 2)
             points = np.concatenate((points, sky_points), axis=0)
-            with open(
-                os.path.join(city_points_dir, "%04d.pkl" % int(r["id"])), "wb"
-            ) as fp:
-                pickle.dump(points, fp)
 
             xyz = points[:, :3]
             rgbs = (
@@ -527,16 +534,30 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             with torch.no_grad():
                 img = gr(torch.from_numpy(gs_points).float().cuda(), cam_pos, cam_quat)
                 img = img.permute(1, 2, 0).cpu().numpy() * 255.0
-                ins = utils.helpers.get_ins_id(img)
                 # NOTE: The coarse instance segmentation map is used to filter invisible
                 # points during training.
-                Image.fromarray(ins).save(
-                    os.path.join(city_insseg_dir, "%04d.png" % int(r["id"]))
-                )
+                ins = utils.helpers.get_ins_id(img)
                 # # Debug: visualize the instance segmentation map
                 # Image.fromarray(
                 #     utils.helpers.get_ins_seg_map.r_palatte[ins],
                 # ).save("output/render/%04d.jpg" % int(r["id"]))
+
+            seg = np.array(
+                Image.open(
+                    os.path.join(city_dir, seg_map_file_pattern % (city, int(r["id"])))
+                ).convert("P")
+            )
+            with open(
+                os.path.join(city_points_dir, "%04d.pkl" % int(r["id"])), "wb"
+            ) as fp:
+                pickle.dump(
+                    {
+                        "ins": ins,
+                        "msk": _get_seg_map_from_ins_map(ins) == seg,
+                        "pts": points,
+                    },
+                    fp,
+                )
 
 
 if __name__ == "__main__":
