@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-21 10:16:30
+# @Last Modified at: 2024-02-23 11:05:36
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -235,9 +235,10 @@ def get_centers_from_projections(projections):
             contours = np.vstack(contours).reshape(-1, 2)
             min_x, max_x = np.min(contours[:, 0]), np.max(contours[:, 0])
             min_y, max_y = np.min(contours[:, 1]), np.max(contours[:, 1])
-            centers[i] = np.array(
-                [(min_x + max_x) / 2, (min_y + max_y) / 2], dtype=np.int16
-            ) * scale
+            centers[i] = (
+                np.array([(min_x + max_x) / 2, (min_y + max_y) / 2], dtype=np.int16)
+                * scale
+            )
     return centers
 
 
@@ -314,15 +315,17 @@ def _get_points_from_projection(projection, local_cords=None, include_btm_pts=Tr
         _projection = {}
         for c, p in projection.items():
             # The smallest bounding box of the minimum rectangle
-            _projection[c] = np.ascontiguousarray(p[min_y:max_y, min_x:max_x])
+            _projection[c] = np.ascontiguousarray(p[min_y:max_y, min_x:max_x]).astype(
+                np.int16
+            )
             if c == "PTS":
-                mask = np.zeros_like(_projection[c], dtype=np.int32)
+                mask = np.zeros_like(_projection[c], dtype=np.int16)
                 cv2.fillPoly(
                     mask,
                     [np.array(local_cords - np.array([min_x, min_y]), dtype=np.int32)],
                     1,
                 )
-                _projection[c] *= mask
+                _projection[c] = _projection[c] * mask
 
     points = footprint_extruder.get_points_from_projection(
         include_btm_pts,
@@ -421,11 +424,11 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
         dump_projections(projections, proj_dir, is_debug)
 
         # # Debug: Load projection caches without computing
+        # with open("/tmp/projections.pkl", "wb") as fp:
+        #     pickle.dump(projections, fp)
         # logging.info("loading projections...")
         # proj_dir = os.path.join(city_dir, "Projection")
         # projections = load_projections(proj_dir)
-        # with open("/tmp/projections.pkl", "wb") as fp:
-        #     pickle.dump(projections, fp)
         # with open("/tmp/projections.pkl", "rb") as fp:
         #     projections = pickle.load(fp)
 
@@ -479,6 +482,10 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             device=torch.device("cuda"),
         )
 
+        city_points_dir = os.path.join(city_dir, "Points")
+        city_insseg_dir = os.path.join(city_dir, "InstanceImage")
+        os.makedirs(city_points_dir, exist_ok=True)
+        os.makedirs(city_insseg_dir, exist_ok=True)
         for r in tqdm(rows, desc="Rendering Gaussian Points"):
             cam_quat = np.array([r["qx"], r["qy"], r["qz"], r["qw"]], dtype=np.float32)
             cam_pos = (
@@ -499,6 +506,10 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             points = get_points_from_projections(projections, local_cords)
             sky_points = get_sky_points(local_cords[1:3], cam_pos[2], fov_y / 2)
             points = np.concatenate((points, sky_points), axis=0)
+            with open(
+                os.path.join(city_points_dir, "%04d.pkl" % int(r["id"])), "wb"
+            ) as fp:
+                pickle.dump(points, fp)
 
             xyz = points[:, :3]
             rgbs = (
@@ -520,7 +531,7 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
                 # NOTE: The coarse instance segmentation map is used to filter invisible
                 # points during training.
                 Image.fromarray(ins).save(
-                    "output/render/%04d.png" % int(r["id"]),
+                    os.path.join(city_insseg_dir, "%04d.png" % int(r["id"]))
                 )
                 # # Debug: visualize the instance segmentation map
                 # Image.fromarray(
@@ -531,7 +542,7 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
 if __name__ == "__main__":
     logging.basicConfig(
         format="[%(levelname)s] %(asctime)s %(message)s",
-        level=logging.DEBUG,
+        level=logging.INFO,
     )
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", default=os.path.join(PROJECT_HOME, "data"))

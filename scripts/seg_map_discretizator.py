@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-25 15:52:37
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-22 19:51:11
+# @Last Modified at: 2024-02-23 10:42:23
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -24,37 +24,49 @@ sys.path.append(PROJECT_HOME)
 import utils.helpers
 
 
+def _get_tensor(value, device):
+    return torch.tensor(value, dtype=torch.int16, device=device)
+
+
 def get_discrete_seg_maps(img):
     CLASSES = {
         # 0: NULL
-        "NULL": torch.tensor([0, 0, 0], dtype=torch.int16, device=img.device),
+        _get_tensor([0, 0, 0], img.device): 0,
+        _get_tensor([200, 200, 200], img.device): 0,
         # 1: ROAD, FWY_DECK
-        "ROAD": torch.tensor([230, 30, 30], dtype=torch.int16, device=img.device),
+        _get_tensor([210, 5, 20], img.device): 1,
+        _get_tensor([155, 0, 10], img.device): 1,
         # 2: FWY_PILLAR, FWY_BARRIER
-        "FWY": torch.tensor([220, 220, 40], dtype=torch.int16, device=img.device),
+        _get_tensor([220, 220, 40], img.device): 2,
+        # _get_tensor([170, 170, 5], img.device): 2,
         # 3: CAR
-        "CAR": torch.tensor([20, 220, 40], dtype=torch.int16, device=img.device),
+        _get_tensor([20, 220, 40], img.device): 3,
+        _get_tensor([0, 170, 0], img.device): 3,
         # 4: WATER
-        "WATER": torch.tensor([90, 215, 215], dtype=torch.int16, device=img.device),
+        _get_tensor([0, 160, 160], img.device): 4,
+        _get_tensor([50, 200, 200], img.device): 4,
         # 5: SKY
-        "SKY": torch.tensor([20, 20, 20], dtype=torch.int16, device=img.device),
+        _get_tensor([10, 10, 10], img.device): 5,
         # 6: ZONE
-        "ZONE": torch.tensor([15, 15, 200], dtype=torch.int16, device=img.device),
+        _get_tensor([15, 15, 200], img.device): 6,
+        _get_tensor([0, 0, 150], img.device): 6,
         # 7: BLDG_FACADE
-        "BLDG_FACADE": torch.tensor(
-            [150, 105, 25], dtype=torch.int16, device=img.device
-        ),
+        _get_tensor([150, 105, 25], img.device): 7,
+        # _get_tensor([170, 170, 15], img.device): 7,
+        _get_tensor([120, 80, 5], img.device): 7,
         # 8: BLDG_ROOF
-        "BLDG_ROOF": torch.tensor([230, 50, 215], dtype=torch.int16, device=img.device),
+        _get_tensor([230, 60, 215], img.device): 8,
+        _get_tensor([160, 0, 160], img.device): 8,
     }
     h, w, _ = img.shape
     dists = torch.zeros((h, w, len(CLASSES)))
-    for idx, mean_color in enumerate(CLASSES.values()):
+    for idx, mean_color in enumerate(CLASSES.keys()):
         dists[..., idx] = torch.sum(torch.abs(img - mean_color), dim=2)
 
     dists = torch.reshape(dists, (h * w, len(CLASSES)))
-    # The undefined small objects will be assigned to random classes
-    return torch.argmin(dists, dim=1).reshape(h, w).cpu().numpy()
+    min_idx = torch.argmin(dists, dim=1).reshape(h, w).cpu().numpy()
+    class_id = np.array([class_id for class_id in CLASSES.values()])
+    return class_id[min_idx]
 
 
 def main(input_dir, output_dir):
