@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-23 20:13:20
+# @Last Modified at: 2024-02-24 10:20:28
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -382,6 +382,7 @@ def get_sky_points(far_plane, cam_z, cam_fov_y):
 
 
 def _get_seg_map_from_ins_map(ins_map):
+    ins_map = ins_map.copy()
     ins_map[ins_map >= CONSTANTS["CAR_INS_MIN_ID"]] = CLASSES["GAUSSIAN"]["CAR"]
     ins_map[
         np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))
@@ -534,15 +535,15 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             with torch.no_grad():
                 img = gr(torch.from_numpy(gs_points).float().cuda(), cam_pos, cam_quat)
                 img = img.permute(1, 2, 0).cpu().numpy() * 255.0
-                # NOTE: The coarse instance segmentation map is used to filter invisible
-                # points during training.
-                ins = utils.helpers.get_ins_id(img)
-                # # Debug: visualize the instance segmentation map
-                # Image.fromarray(
-                #     utils.helpers.get_ins_seg_map.r_palatte[ins],
-                # ).save("output/render/%04d.jpg" % int(r["id"]))
 
-            seg = np.array(
+            # NOTE: The coarse instance segmentation map is used to filter invisible
+            # points during training.
+            ins_map = utils.helpers.get_ins_id(img)
+            # # Debug: visualize the instance segmentation map
+            # Image.fromarray(
+            #     utils.helpers.get_ins_seg_map.r_palatte[ins_map],
+            # ).save("output/render/%04d.jpg" % int(r["id"]))
+            seg_map = np.array(
                 Image.open(
                     os.path.join(city_dir, seg_map_file_pattern % (city, int(r["id"])))
                 ).convert("P")
@@ -552,8 +553,8 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             ) as fp:
                 pickle.dump(
                     {
-                        "ins": ins,
-                        "msk": _get_seg_map_from_ins_map(ins) == seg,
+                        "ins": ins_map,
+                        "msk": _get_seg_map_from_ins_map(ins_map) == seg_map,
                         "pts": points,
                     },
                     fp,
