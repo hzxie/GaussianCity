@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-24 10:20:28
+# @Last Modified at: 2024-02-25 15:09:04
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -27,7 +27,7 @@ from tqdm import tqdm
 PROJECT_HOME = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
 sys.path.append(PROJECT_HOME)
 
-import extensions.diff_gaussian_rasterization as dgr
+import extensions.voxlib
 import footprint_extruder
 import utils.helpers
 
@@ -82,6 +82,7 @@ CONSTANTS = {
     "PATCH_SIZE": 5000,
     "BLDG_INS_MIN_ID": 100,
     "CAR_INS_MIN_ID": 5000,
+    "INS_MAP_MIN_PIXELS": 200,
 }
 
 
@@ -341,7 +342,7 @@ def _get_points_from_projection(projection, local_cords=None, include_btm_pts=Tr
         points[:, 0] += min_x
         points[:, 1] += min_y
 
-    return points
+    return points.astype(np.int16) if points is not None else None
 
 
 def get_scales(points):
@@ -379,6 +380,86 @@ def get_sky_points(far_plane, cam_z, cam_fov_y):
 
     logging.debug("#Sky points: %d" % (len(points)))
     return np.array(points, dtype=np.int16)
+
+
+def _get_volume(points, scales):
+    x_min, x_max = torch.min(points[:, 0]).item(), torch.max(points[:, 0]).item()
+    y_min, y_max = torch.min(points[:, 1]).item(), torch.max(points[:, 1]).item()
+    z_min, z_max = torch.min(points[:, 2]).item(), torch.max(points[:, 2]).item()
+    offsets = np.array([x_min, y_min, z_min], dtype=np.int16)
+    # Normalize points coordinates to local coordinate system
+    points[:, 0] -= x_min
+    points[:, 1] -= y_min
+    # Make sure the minimum height is 1 because z = 0 indicates the height is 1.
+    points[:, 2] -= z_min - 1
+    # Generate an empty 3D volume
+    w, h, d = x_max - x_min + 1, y_max - y_min + 1, z_max - z_min + 2
+    # Naive Python Implementation (runtime ~ 5min)
+    # volume = torch.zeros((h, w, d), dtype=torch.int16, device=points.device)
+    # for i in tqdm(range(points.shape[0]), leave=False, desc="Generating 3D volume"):
+    #     x, y, z, c = points[i]
+    #     sx, sy, sz = scales[i]
+    #     volume[y:y+sy, x:x+sx, z:z+sz] = c
+    # CUDA Implementation
+    volume = extensions.voxlib.points_to_volume(points.contiguous(), scales, h, w, d)
+    return volume, offsets
+
+
+def _get_ray_voxel_intersection(cam_rig, cam_position, cam_look_at, volume):
+    N_MAX_SAMPLES = 1
+    cam_origin = torch.tensor(
+        [
+            cam_position[1],
+            cam_position[0],
+            cam_position[2],
+        ],
+        dtype=torch.float32,
+        device=volume.device,
+    )
+    viewdir = torch.tensor(
+        [
+            cam_look_at[1] - cam_position[1],
+            cam_look_at[0] - cam_position[0],
+            cam_look_at[2] - cam_position[2],
+        ],
+        dtype=torch.float32,
+        device=volume.device,
+    )
+    voxel_id, _, _ = extensions.voxlib.ray_voxel_intersection_perspective(
+        volume,
+        cam_origin,
+        viewdir,
+        torch.tensor([0, 0, 1], dtype=torch.float32),
+        cam_rig["intrinsics"][0],
+        [
+            cam_rig["sensor_size"][1] / 2,
+            cam_rig["sensor_size"][0] / 2,
+        ],
+        [cam_rig["sensor_size"][1], cam_rig["sensor_size"][0]],
+        N_MAX_SAMPLES,
+    )
+    # Manually release the memory to avoid OOM
+    del volume
+    torch.cuda.empty_cache()
+    # No needed to map NULL voxels to SKY. Because the sky points are already generated.
+    # voxel_id[voxel_id == 0] = CLASSES["GAUSSIAN"]["SKY"]
+    return voxel_id.squeeze().cpu().numpy()
+
+
+def get_ins_seg_map(points, scales, cam_rig, cam_pos, cam_quat):
+    # points[:, 3] denotes the scale, which is duplicated with "scales"
+    points = torch.from_numpy(points[:, [0, 1, 2, 4]]).cuda()
+    scales = torch.from_numpy(scales).cuda()
+    # Scale the volume by 0.2 to reduce the memory usage
+    cam_pos = cam_pos.copy() / 5.0
+    scales = torch.ceil(scales / 5.0).short()
+    points[:, :3] = torch.floor(points[:, :3] / 5.0).short()
+    # Generate 3D volume
+    volume, offsets = _get_volume(points, scales)
+    cam_pos -= offsets
+
+    cam_look_at = utils.helpers.get_camera_look_at(cam_pos, cam_quat)
+    return _get_ray_voxel_intersection(cam_rig, cam_pos, cam_look_at, volume)
 
 
 def _get_seg_map_from_ins_map(ins_map):
@@ -489,10 +570,6 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
         logging.debug(
             "Camera FOV: (%.2f, %.2f) deg." % (np.rad2deg(fov_x), np.rad2deg(fov_y))
         )
-        gr = dgr.GaussianRasterizerWrapper(
-            np.array(cam_rig["intrinsics"], dtype=np.float32).reshape((3, 3)),
-            device=torch.device("cuda"),
-        )
 
         city_points_dir = os.path.join(city_dir, "Points")
         city_insseg_dir = os.path.join(city_dir, "InstanceImage")
@@ -518,27 +595,8 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             points = get_points_from_projections(projections, local_cords)
             sky_points = get_sky_points(local_cords[1:3], cam_pos[2], fov_y / 2)
             points = np.concatenate((points, sky_points), axis=0)
-
-            xyz = points[:, :3]
-            rgbs = (
-                utils.helpers.get_ins_colors(points[:, 4], random=False).astype(
-                    np.float32
-                )
-                / 255.0
-            )
-            opacity = np.ones((xyz.shape[0], 1))
             scales = get_scales(points)
-            rotations = np.concatenate(
-                (np.ones((xyz.shape[0], 1)), np.zeros((xyz.shape[0], 3))), axis=1
-            )
-            gs_points = np.concatenate((xyz, opacity, scales, rotations, rgbs), axis=1)
-            with torch.no_grad():
-                img = gr(torch.from_numpy(gs_points).float().cuda(), cam_pos, cam_quat)
-                img = img.permute(1, 2, 0).cpu().numpy() * 255.0
-
-            # NOTE: The coarse instance segmentation map is used to filter invisible
-            # points during training.
-            ins_map = utils.helpers.get_ins_id(img)
+            ins_map = get_ins_seg_map(points, scales, cam_rig, cam_pos, cam_quat)
             # # Debug: visualize the instance segmentation map
             # Image.fromarray(
             #     utils.helpers.get_ins_seg_map.r_palatte[ins_map],
