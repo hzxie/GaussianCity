@@ -3,7 +3,7 @@
  * @Author: Haozhe Xie
  * @Date:   2024-02-24 14:09:38
  * @Last Modified by: Haozhe Xie
- * @Last Modified at: 2024-02-25 09:04:09
+ * @Last Modified at: 2024-02-25 15:06:27
  * @Email:  root@haozhexie.com
  */
 
@@ -24,8 +24,8 @@ inline int get_n_threads(int n) {
   return max(min(1 << pow_2, CUDA_NUM_THREADS), 1);
 }
 
-__device__ int64_t compute_index(int x, int y, int z, int w, int d) {
-  // i * width * depth + j * depth + k;
+__device__ int64_t compute_index(int64_t x, int64_t y, int64_t z, int64_t w,
+                                 int64_t d) {
   return y * w * d + x * d + z;
 }
 
@@ -35,6 +35,7 @@ __global__ void points_to_volume_cuda_cuda_kernel(
   int blk_idx = blockIdx.x;
   int thd_idx = threadIdx.x;
   int stride = blockDim.x;
+  int64_t sz = h * w * d;
 
   points += blk_idx * 4;
   scales += blk_idx * 3;
@@ -58,6 +59,11 @@ __global__ void points_to_volume_cuda_cuda_kernel(
             continue;
           }
           int64_t idx = compute_index(j, k, l, w, d);
+          // if (idx - sz <= 0) {
+          //   printf("Invalid index: %ld/%ld. j = %d, k = %d, l = %d, h = %d, w "
+          //          "= %d, d = %d\n",
+          //          idx, sz, j, k, l, h, w, d);
+          // }
           volume[idx] = c;
         }
       }
