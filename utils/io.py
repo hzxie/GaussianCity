@@ -4,10 +4,12 @@
 # @Author: Haozhe Xie
 # @Date:   2019-08-02 10:22:03
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2023-05-20 20:33:20
+# @Last Modified at: 2024-02-25 15:13:38
 # @Email:  root@haozhexie.com
 
+import csv
 import io
+import json
 import numpy as np
 import os
 import pickle
@@ -46,6 +48,10 @@ class IO:
             return cls._read_pkl(file_path)
         if file_extension in [".npy"]:
             return cls._read_npy(file_path)
+        if file_extension in [".csv"]:
+            return cls._read_csv(file_path)
+        if file_extension in [".json"]:
+            return cls._read_json(file_path)
         else:
             raise Exception("Unsupported file extension: %s" % file_extension)
 
@@ -93,3 +99,14 @@ class IO:
             return np.frombuffer(buf[header_size + 10 :], dtype).reshape(
                 header["shape"]
             )
+
+    @classmethod
+    def _read_csv(cls, file_path):
+        with open(file_path) as f:
+            reader = csv.DictReader(f)
+            return [r for r in reader]
+
+    @classmethod
+    def _read_json(cls, file_path):
+        with open(file_path, "r") as f:
+            return json.load(f)

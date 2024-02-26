@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-26 14:22:15
+# @Last Modified at: 2024-02-26 15:06:29
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -247,7 +247,7 @@ def get_centers_from_projections(projections):
             )
             # Fix the centers for BLDG_ROOF
             if i >= CONSTANTS["BLDG_INS_MIN_ID"] and i < CONSTANTS["CAR_INS_MIN_ID"]:
-                centers[i + 1] = centers
+                centers[i + 1] = centers[i]
 
     return centers
 

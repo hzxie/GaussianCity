@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-09 18:16:57
+# @Last Modified at: 2024-02-26 10:58:05
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -21,8 +21,8 @@ from tqdm import tqdm
 def get_dataset(cfg, dataset_name, split):
     if dataset_name == "CITY_SAMPLE":
         return CitySampleDataset(cfg, split)
-    elif dataset_name == "CITY_SAMPLE_BUILDING":
-        return CitySampleBuildingDataset(cfg, split)
+    elif dataset_name == "GOOGLE_EARTH":
+        raise NotImplementedError()
     else:
         raise Exception("Unknown dataset: %s" % dataset_name)
 
@@ -49,7 +49,6 @@ class CitySampleDataset(torch.utils.data.Dataset):
         super(CitySampleDataset, self).__init__()
         self.cfg = cfg
         self.split = split
-        self.fields = ["hf", "seg", "footage", "raycasting"]
         self.memcached = {}
         self.renderings = self._get_renderings(cfg, split)
         self.n_renderings = len(self.renderings)
@@ -63,18 +62,36 @@ class CitySampleDataset(torch.utils.data.Dataset):
         )
 
     def __getitem__(self, idx):
-        rendering = self.renderings[idx % self.n_renderings]
+        idx = idx % self.n_renderings
+        rendering = self.renderings[idx]
+
+        K = (
+            self.memcached["K"]
+            if "K" in self.memcached
+            else utils.io.IO.get(rendering["K"])
+        )
+        Rt = (
+            self.memcached["Rt"]
+            if "Rt" in self.memcached
+            else utils.io.IO.get(rendering["Rt"])
+        )
+        centers = (
+            self.memcached["centers"]
+            if "centers" in self.memcached
+            else utils.io.IO.get(rendering["centers"])
+        )
+        rgb = np.array(utils.io.IO.get(rendering["rgb"]), dtype=np.float32)
+        rgb = rgb / 255.0 * 2 - 1
+        pts = utils.io.IO.get(rendering["pts"])
         data = {
-            "hf": self._get_height_field(rendering["hf"], self.cfg),
-            "seg": self._get_seg_layout(rendering["seg"]),
-            "footage": self._get_footage_img(rendering["footage"]),
+            "K": K["cameras"]["CameraComponent"]["intrinsics"],
+            "Rt": Rt[idx],
+            "centers": centers,
+            "rgb": rgb,
+            "ins": pts["ins"],
+            "msk": pts["msk"],
+            "pts": pts["pts"],
         }
-        raycasting = utils.io.IO.get(rendering["raycasting"])
-        data["voxel_id"] = raycasting["voxel_id"]
-        data["depth2"] = raycasting["depth2"]
-        data["raydirs"] = raycasting["raydirs"]
-        data["cam_origin"] = raycasting["cam_origin"]
-        data["mask"] = raycasting["mask"]
         data = self.transforms(data)
         return data
 
@@ -85,20 +102,21 @@ class CitySampleDataset(torch.utils.data.Dataset):
         files = [
             {
                 "name": "%s/%s/%04d" % (c, s, i),
-                "hf": os.path.join(cfg.DATASETS.CITY_SAMPLE.DIR, c, "HeightField.png"),
-                "seg": os.path.join(cfg.DATASETS.CITY_SAMPLE.DIR, c, "SegLayout.png"),
-                "footage": os.path.join(
+                # Camera parameters
+                "K": os.path.join(cfg.DATASETS.CITY_SAMPLE.DIR, c, "CameraRig.json"),
+                "Rt": os.path.join(cfg.DATASETS.CITY_SAMPLE.DIR, c, "CameraPoses.csv"),
+                # The XY centers of the instances
+                "centers": os.path.join(cfg.DATASETS.CITY_SAMPLE.DIR, c, "CENTERS.pkl"),
+                "rgb": os.path.join(
                     cfg.DATASETS.CITY_SAMPLE.DIR,
                     c,
                     "ColorImage",
                     s,
                     "%sSequence.%04d.jpeg" % (c, i),
                 ),
-                "raycasting": os.path.join(
-                    cfg.DATASETS.CITY_SAMPLE.DIR, c, "Raycasting", "%04d.pkl" % i
-                ),
-                "footprint_bboxes": os.path.join(
-                    cfg.DATASETS.CITY_SAMPLE.DIR, c, "Footprints.pkl"
+                # Precomputed Points in the viewpoint (scripts/dataset_generator.py)
+                "pts": os.path.join(
+                    cfg.DATASETS.CITY_SAMPLE.DIR, c, "Points", "%04d.pkl" % i
                 ),
             }
             for c in cities
@@ -114,91 +132,41 @@ class CitySampleDataset(torch.utils.data.Dataset):
                     continue
                 elif v in self.memcached:
                     continue
-                elif k == "hf":
-                    self.memcached[v] = self._get_height_field(v, cfg)
-                elif k == "seg":
-                    self.memcached[v] = self._get_seg_layout(v)
-                elif k == "footprint_bboxes":
-                    self.memcached[v] = self._get_footprint_bboxes(v)
+                else:
+                    self.memcached[v] = utils.io.IO.get(v)
 
         return files if split == "train" else files[-32:]
 
-    def _get_height_field(self, file_path, cfg):
-        if file_path in self.memcached:
-            return self.memcached[file_path]
-
-        return (
-            np.array(utils.io.IO.get(file_path)) / cfg.DATASETS.CITY_SAMPLE.MAX_HEIGHT
-        )
-
-    def _get_seg_layout(self, file_path):
-        if file_path in self.memcached:
-            return self.memcached[file_path]
-
-        return np.array(utils.io.IO.get(file_path).convert("P"))
-
-    def _get_footprint_bboxes(self, file_path):
-        if file_path in self.memcached:
-            return self.memcached[file_path]
-
-        return utils.io.IO.get(file_path)
-
-    def _get_footage_img(self, file_path):
-        img = utils.io.IO.get(file_path)
-        return (np.array(img) / 255.0 - 0.5) * 2
-
     def _get_data_transforms(self, cfg, split):
         if split == "train":
             return utils.transforms.Compose(
                 [
                     {
-                        "callback": "RandomCrop",
+                        "callback": "Crop",
                         "parameters": {
-                            "height": cfg.TRAIN.GANCRAFT.CROP_SIZE[1],
-                            "width": cfg.TRAIN.GANCRAFT.CROP_SIZE[0],
-                            "key": "voxel_id",
-                            "values": [
-                                i
-                                for i in range(cfg.DATASETS.CITY_SAMPLE.N_CLASSES)
-                                if i
-                                not in [
-                                    cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
-                                    cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID,
-                                ]
-                            ],
-                            "n_min_pixels": cfg.DATASETS.CITY_SAMPLE.N_MIN_PIXELS,
+                            "height": cfg.TRAIN.GAUSSIAN.CROP_SIZE[1],
+                            "width": cfg.TRAIN.GAUSSIAN.CROP_SIZE[0],
+                            "n_min_pixels": cfg.DATASETS.CITY_SAMPLE.N_MIN_PIXELS_CROP,
                         },
-                        "objects": ["voxel_id", "depth2", "raydirs", "footage", "mask"],
+                        "objects": ["rgb", "ins", "msk"],
                     },
                     {
-                        "callback": "BuildingMaskRemap",
-                        # NOTE: Map both facade and roof to facade (in BG mode).
-                        "parameters": {
-                            "bldg_facade_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
-                            "bldg_roof_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
-                            "bldg_ins_range": cfg.DATASETS.CITY_SAMPLE_BUILDING.INS_ID_RANGE,
-                        },
-                        "objects": ["voxel_id", "seg"],
+                        "callback": "RemoveUnseenPoints",
+                        "parameters": None,
+                        "objects": ["pts", "ins"],
                     },
                     {
-                        "callback": "ToOneHot",
-                        "parameters": {
-                            "n_classes": cfg.DATASETS.CITY_SAMPLE.N_CLASSES,
-                        },
-                        "objects": ["seg"],
+                        "callback": "NormalizePointCords",
+                        "parameters": None,
+                        "objects": ["pts", "centers"],
                     },
                     {
                         "callback": "ToTensor",
                         "parameters": None,
                         "objects": [
-                            "hf",
-                            "seg",
-                            "voxel_id",
-                            "depth2",
-                            "raydirs",
-                            "cam_origin",
-                            "footage",
-                            "mask",
+                            "rgb",
+                            "msk",
+                            "pts",
                         ],
                     },
                 ]
@@ -207,293 +175,31 @@ class CitySampleDataset(torch.utils.data.Dataset):
             return utils.transforms.Compose(
                 [
                     {
-                        "callback": "CenterCrop",
+                        "callback": "Crop",
                         "parameters": {
-                            "height": cfg.TEST.GANCRAFT.CROP_SIZE[1],
-                            "width": cfg.TEST.GANCRAFT.CROP_SIZE[0],
+                            "height": cfg.TEST.GAUSSIAN.CROP_SIZE[1],
+                            "width": cfg.TEST.GAUSSIAN.CROP_SIZE[0],
+                            "mode": "center",
                         },
-                        "objects": ["voxel_id", "depth2", "raydirs", "footage", "mask"],
+                        "objects": ["rgb", "ins", "msk"],
                     },
                     {
-                        "callback": "BuildingMaskRemap",
-                        # NOTE: Map both facade and roof to facade (in BG mode).
-                        "parameters": {
-                            "bldg_facade_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
-                            "bldg_roof_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
-                            "bldg_ins_range": cfg.DATASETS.CITY_SAMPLE_BUILDING.INS_ID_RANGE,
-                        },
-                        "objects": ["voxel_id", "seg"],
+                        "callback": "RemoveUnseenPoints",
+                        "parameters": None,
+                        "objects": ["pts", "ins"],
                     },
                     {
-                        "callback": "ToOneHot",
-                        "parameters": {
-                            "n_classes": cfg.DATASETS.CITY_SAMPLE.N_CLASSES,
-                        },
-                        "objects": ["seg"],
+                        "callback": "NormalizePointCords",
+                        "parameters": None,
+                        "objects": ["pts", "centers"],
                     },
                     {
                         "callback": "ToTensor",
                         "parameters": None,
                         "objects": [
-                            "hf",
-                            "seg",
-                            "voxel_id",
-                            "depth2",
-                            "raydirs",
-                            "cam_origin",
-                            "footage",
-                            "mask",
-                        ],
-                    },
-                ]
-            )
-
-
-class CitySampleBuildingDataset(CitySampleDataset):
-    def __init__(self, cfg, split):
-        super(CitySampleBuildingDataset, self).__init__(cfg, split)
-        self.split = split
-        # Overwrite the transforms in CitySampleDataset
-        self.transforms = self._get_data_transforms(cfg, split)
-
-    def __len__(self):
-        return (
-            self.n_renderings * self.cfg.DATASETS.CITY_SAMPLE_BUILDING.N_REPEAT
-            if self.split == "train"
-            else self.n_renderings
-        )
-
-    def __getitem__(self, idx):
-        data = None
-        while data is None:
-            rendering = self.renderings[idx % self.n_renderings]
-            data = self._get_data(rendering)
-            idx += 1
-
-        return data
-
-    def _get_data(self, rendering):
-        data = {
-            "hf": self._get_height_field(rendering["hf"], self.cfg),
-            "seg": self._get_seg_layout(rendering["seg"]),
-            "footage": self._get_footage_img(rendering["footage"]),
-        }
-        raycasting = utils.io.IO.get(rendering["raycasting"])
-        footprint_bboxes = self._get_footprint_bboxes(rendering["footprint_bboxes"])
-
-        data["voxel_id"] = raycasting["voxel_id"]
-        data["depth2"] = raycasting["depth2"]
-        data["raydirs"] = raycasting["raydirs"]
-        data["cam_origin"] = raycasting["cam_origin"]
-        data["mask"] = raycasting["mask"]
-        # Determine Building Instances
-        data["building_id"] = self._get_rnd_building_id(
-            data["voxel_id"][..., 0, 0],
-            data["mask"],
-            True if self.split == "train" else False,
-        )
-        # Cannot find suitable buildings in the current view
-        if data["building_id"] is None:
-            return None
-
-        # NOTE: data["footprint_bboxes"] -> (dy, dx, h, w)
-        data["footprint_bboxes"] = self._get_footprint_bbox(
-            footprint_bboxes, data["building_id"]
-        )
-        data["hf"] = self._get_img_patch(
-            data["hf"],
-            self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE // 2
-            + int(data["footprint_bboxes"][1]),
-            self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE // 2
-            + int(data["footprint_bboxes"][0]),
-        )
-        data["seg"] = self._get_img_patch(
-            data["seg"],
-            self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE // 2
-            + int(data["footprint_bboxes"][1]),
-            self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE // 2
-            + int(data["footprint_bboxes"][0]),
-        )
-        data = self.transforms(data)
-        return data
-
-    def _get_img_patch(self, img, cx, cy):
-        size = self.cfg.DATASETS.CITY_SAMPLE_BUILDING.VOL_SIZE
-        half_size = size // 2
-        pad_img = (
-            np.zeros((size, size))
-            # if len(img.shape) == 2
-            # else np.zeros((size, size, img.shape[2]))
-        )
-        # Determine the crop position
-        tl_x, br_x = cx - half_size, cx + half_size
-        tl_y, br_y = cy - half_size, cy + half_size
-        # Handle Corner case (out of bounds)
-        pad_x = 0 if tl_x >= 0 else abs(tl_x)
-        tl_x = tl_x if tl_x >= 0 else 0
-        br_x = min(br_x, self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE)
-        patch_w = br_x - tl_x
-        pad_y = 0 if tl_y >= 0 else abs(tl_y)
-        tl_y = tl_y if tl_y >= 0 else 0
-        br_y = min(br_y, self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE)
-        patch_h = br_y - tl_y
-        # Copy-paste
-        pad_img[pad_y : pad_y + patch_h, pad_x : pad_x + patch_w] = img[
-            tl_y:br_y, tl_x:br_x
-        ]
-        return pad_img
-
-    def _get_rnd_building_id(self, voxel_id, seg_mask, rnd_mode=True, n_max_times=100):
-        buliding_ids = np.unique(
-            voxel_id[
-                (voxel_id >= self.cfg.DATASETS.CITY_SAMPLE_BUILDING.INS_ID_RANGE[0])
-                & (voxel_id < self.cfg.DATASETS.CITY_SAMPLE_BUILDING.INS_ID_RANGE[1])
-            ]
-        )
-        # NOTE: The facade instance IDs are multiple of 4.
-        buliding_ids = buliding_ids[buliding_ids % 4 == 0]
-        # Fix bldg_idx in test mode
-        n_bulidings = len(buliding_ids)
-        # Fix a bug causes empty range for randrange() (0, 0, 0) for random.randint()
-        if n_bulidings == 0:
-            return None
-
-        bldg_idx = n_bulidings // 4
-        # Make sure that the building contains unambiguous pixels
-        n_times = 0
-        while n_times < n_max_times:
-            n_times += 1
-            if rnd_mode:
-                bldg_idx = random.randint(0, n_bulidings - 1)
-            else:
-                bldg_idx += 1
-
-            building_id = buliding_ids[bldg_idx % n_bulidings]
-            if (
-                np.count_nonzero(seg_mask[voxel_id == building_id])
-                >= self.cfg.DATASETS.CITY_SAMPLE_BUILDING.N_MIN_PIXELS
-            ):
-                break
-
-        assert building_id % 4 == 0, "Building instance ID MUST BE an even number."
-        return building_id if n_times < n_max_times else None
-
-    def _get_footprint_bbox(self, footprint_bboxes, building_id):
-        # NOTE: 0 <= dx, dy < 1536, indicating the offsets between the building
-        # and the image center.
-        x, y, w, h = footprint_bboxes[building_id]
-        # See also: https://git.haozhexie.com/hzxie/city-dreamer/src/branch/master/scripts/dataset_generator.py#L503-L511
-        dx = x - self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE // 2 + w / 2
-        dy = y - self.cfg.DATASETS.CITY_SAMPLE.VOL_SIZE // 2 + h / 2
-        return torch.Tensor([dy, dx, h, w, building_id])
-
-    def _get_data_transforms(self, cfg, split):
-        if split == "train":
-            return utils.transforms.Compose(
-                [
-                    {
-                        "callback": "BuildingMaskRemap",
-                        "parameters": {
-                            "attr": "building_id",
-                            "bldg_facade_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
-                            "bldg_roof_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID,
-                            "bldg_ins_range": cfg.DATASETS.CITY_SAMPLE_BUILDING.INS_ID_RANGE,
-                        },
-                        "objects": ["voxel_id", "seg"],
-                    },
-                    {
-                        "callback": "MaskRaydirs",
-                        "parameters": {
-                            "attr": "raydirs",
-                            "values": [
-                                cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
-                                cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID,
-                            ],
-                        },
-                    },
-                    {
-                        "callback": "CenterCropTarget",
-                        "parameters": {
-                            "height": cfg.TRAIN.GANCRAFT.CROP_SIZE[1],
-                            "width": cfg.TRAIN.GANCRAFT.CROP_SIZE[0],
-                            "target_value": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
-                        },
-                        "objects": ["voxel_id", "depth2", "raydirs", "footage", "mask"],
-                    },
-                    {
-                        "callback": "ToOneHot",
-                        "parameters": {
-                            "n_classes": cfg.DATASETS.CITY_SAMPLE.N_CLASSES,
-                        },
-                        "objects": ["seg"],
-                    },
-                    {
-                        "callback": "ToTensor",
-                        "parameters": None,
-                        "objects": [
-                            "hf",
-                            "seg",
-                            "voxel_id",
-                            "depth2",
-                            "raydirs",
-                            "cam_origin",
-                            "footage",
-                            "mask",
-                        ],
-                    },
-                ]
-            )
-        else:
-            return utils.transforms.Compose(
-                [
-                    {
-                        "callback": "BuildingMaskRemap",
-                        "parameters": {
-                            "attr": "building_id",
-                            "bldg_facade_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
-                            "bldg_roof_label": cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID,
-                            "bldg_ins_range": cfg.DATASETS.CITY_SAMPLE_BUILDING.INS_ID_RANGE,
-                        },
-                        "objects": ["voxel_id", "seg"],
-                    },
-                    {
-                        "callback": "MaskRaydirs",
-                        "parameters": {
-                            "attr": "raydirs",
-                            "values": [
-                                cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
-                                cfg.DATASETS.CITY_SAMPLE_BUILDING.ROOF_CLS_ID,
-                            ],
-                        },
-                    },
-                    {
-                        "callback": "CenterCropTarget",
-                        "parameters": {
-                            "height": cfg.TRAIN.GANCRAFT.CROP_SIZE[1],
-                            "width": cfg.TRAIN.GANCRAFT.CROP_SIZE[0],
-                            "target_value": cfg.DATASETS.CITY_SAMPLE_BUILDING.FACADE_CLS_ID,
-                        },
-                        "objects": ["voxel_id", "depth2", "raydirs", "footage", "mask"],
-                    },
-                    {
-                        "callback": "ToOneHot",
-                        "parameters": {
-                            "n_classes": cfg.DATASETS.CITY_SAMPLE.N_CLASSES,
-                        },
-                        "objects": ["seg"],
-                    },
-                    {
-                        "callback": "ToTensor",
-                        "parameters": None,
-                        "objects": [
-                            "hf",
-                            "seg",
-                            "voxel_id",
-                            "depth2",
-                            "raydirs",
-                            "cam_origin",
-                            "footage",
-                            "mask",
+                            "rgb",
+                            "msk",
+                            "pts",
                         ],
                     },
                 ]
