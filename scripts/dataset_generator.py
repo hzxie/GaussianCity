@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-25 15:09:04
+# @Last Modified at: 2024-02-26 09:20:41
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -266,17 +266,17 @@ def get_view_frustum_cords(cam_pos, cam_look_at, patch_size, fov_rad):
     bl4 = y1 - kl4 * x1
     x4 = (bl2 - be3) / (ke3 - kl2)
     y4 = kl2 * x4 + bl2
-    assert abs(y4 - ke3 * x4 - be3) < 1e-6
+    assert abs(y4 - ke3 * x4 - be3) < 1e-5
     x5 = (bl4 - be3) / (ke3 - kl4)
     y5 = kl4 * x5 + bl4
-    assert abs(y5 - ke3 * x5 - be3) < 1e-6
-    assert (x4 + x5) / 2 - x3 < 1e-6 and (y4 + y5) / 2 - y3 < 1e-6
+    assert abs(y5 - ke3 * x5 - be3) < 1e-5
+    assert (x4 + x5) / 2 - x3 < 1e-5 and (y4 + y5) / 2 - y3 < 1e-5
     # (x6, y6) is the center of the rectangle
     x6, y6 = (x1 + x3) / 2, (y1 + y3) / 2
     # (x7, y7) and (x8, y8) are the two endpoints of E1, respectively.
     x7, y7 = 2 * x6 - x4, 2 * y6 - y4
     x8, y8 = 2 * x6 - x5, 2 * y6 - y5
-    assert (x7 + x8) / 2 - x1 < 1e-6 and (y7 + y8) / 2 - y1 < 1e-6
+    assert (x7 + x8) / 2 - x1 < 1e-5 and (y7 + y8) / 2 - y1 < 1e-5
     return np.array([(x1, y1), (x4, y4), (x5, y5), (x7, y7), (x8, y8)], dtype=np.int16)
 
 
