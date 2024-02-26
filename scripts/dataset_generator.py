@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-26 09:20:41
+# @Last Modified at: 2024-02-26 11:04:25
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -215,11 +215,17 @@ def get_centers_from_projections(projections):
     scale = 1
     centers = {}
     for c, p in projections.items():
+        ds_hf = p["TD_HF"]
         ds_seg = p["SEG"]
         if c == "CAR":
             scale = 1
         else:
             scale = 4
+            ds_hf = cv2.resize(
+                p["TD_HF"],
+                dsize=(CONSTANTS["MAP_SIZE"] // scale, CONSTANTS["MAP_SIZE"] // scale),
+                interpolation=cv2.INTER_NEAREST,
+            )
             ds_seg = cv2.resize(
                 p["SEG"],
                 dsize=(CONSTANTS["MAP_SIZE"] // scale, CONSTANTS["MAP_SIZE"] // scale),
@@ -227,18 +233,26 @@ def get_centers_from_projections(projections):
             )
 
         instances = np.unique(ds_seg)
-        for i in tqdm(instances, leave=False, desc="Calculating centers for %s" % c):
+        for i in tqdm(instances, desc="Calculating centers for %s" % c):
+            ds_mask = ds_seg == i
             contours, _ = cv2.findContours(
-                (ds_seg == i).astype(np.uint8),
+                ds_mask.astype(np.uint8),
                 cv2.RETR_EXTERNAL,
                 cv2.CHAIN_APPROX_SIMPLE,
             )
             contours = np.vstack(contours).reshape(-1, 2)
             min_x, max_x = np.min(contours[:, 0]), np.max(contours[:, 0])
             min_y, max_y = np.min(contours[:, 1]), np.max(contours[:, 1])
-            centers[i] = (
-                np.array([(min_x + max_x) / 2, (min_y + max_y) / 2], dtype=np.int16)
-                * scale
+            max_z = np.max(ds_hf[ds_mask]) + 1
+            centers[i] = np.array(
+                [
+                    (min_x + max_x) / 2 * scale,
+                    (min_y + max_y) / 2 * scale,
+                    (max_x - min_x) * scale,
+                    (max_y - min_y) * scale,
+                    max_z,
+                ],
+                dtype=np.int16,
             )
     return centers
 
@@ -396,7 +410,7 @@ def _get_volume(points, scales):
     w, h, d = x_max - x_min + 1, y_max - y_min + 1, z_max - z_min + 2
     # Naive Python Implementation (runtime ~ 5min)
     # volume = torch.zeros((h, w, d), dtype=torch.int16, device=points.device)
-    # for i in tqdm(range(points.shape[0]), leave=False, desc="Generating 3D volume"):
+    # for i in tqdm(range(points.shape[0]), desc="Generating 3D volume"):
     #     x, y, z, c = points[i]
     #     sx, sy, sz = scales[i]
     #     volume[y:y+sy, x:x+sx, z:z+sz] = c
