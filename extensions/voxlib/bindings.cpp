@@ -3,7 +3,7 @@
  * @Author: NVIDIA Corporation
  * @Date:   2021-10-13 00:00:00
  * @Last Modified by: Haozhe Xie
- * @Last Modified at: 2024-02-24 14:16:37
+ * @Last Modified at: 2024-02-26 18:54:07
  * @Email:  root@haozhexie.com
  */
 
@@ -20,6 +20,7 @@ std::vector<torch::Tensor> ray_voxel_intersection_perspective_cuda(
     int max_samples);
 
 torch::Tensor points_to_volume_cuda(const torch::Tensor &points,
+                                    const torch::Tensor &pt_ids,
                                     const torch::Tensor &scales, int h, int w,
                                     int d);
 

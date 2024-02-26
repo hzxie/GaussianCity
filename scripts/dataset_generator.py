@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-26 15:06:29
+# @Last Modified at: 2024-02-26 19:35:13
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -391,26 +391,29 @@ def get_sky_points(far_plane, cam_z, cam_fov_y):
     return np.array(points, dtype=np.int16)
 
 
+def _get_localized_pt_cords(points, offsets):
+    points[:, 0] -= offsets[0]
+    points[:, 1] -= offsets[1]
+    points[:, 2] -= offsets[2] - 1
+    return points
+
+
 def _get_volume(points, scales):
     x_min, x_max = torch.min(points[:, 0]).item(), torch.max(points[:, 0]).item()
     y_min, y_max = torch.min(points[:, 1]).item(), torch.max(points[:, 1]).item()
     z_min, z_max = torch.min(points[:, 2]).item(), torch.max(points[:, 2]).item()
     offsets = np.array([x_min, y_min, z_min], dtype=np.int16)
     # Normalize points coordinates to local coordinate system
-    points[:, 0] -= x_min
-    points[:, 1] -= y_min
-    # Make sure the minimum height is 1 because z = 0 indicates the height is 1.
-    points[:, 2] -= z_min - 1
+    points = _get_localized_pt_cords(points, offsets)
     # Generate an empty 3D volume
     w, h, d = x_max - x_min + 1, y_max - y_min + 1, z_max - z_min + 2
-    # Naive Python Implementation (runtime ~ 5min)
-    # volume = torch.zeros((h, w, d), dtype=torch.int16, device=points.device)
-    # for i in tqdm(range(points.shape[0]), desc="Generating 3D volume"):
-    #     x, y, z, c = points[i]
-    #     sx, sy, sz = scales[i]
-    #     volume[y:y+sy, x:x+sx, z:z+sz] = c
-    # CUDA Implementation
-    volume = extensions.voxlib.points_to_volume(points.contiguous(), scales, h, w, d)
+    # Generate point IDs
+    pt_ids = torch.arange(
+        points.shape[0], dtype=torch.int32, device=points.device
+    ).unsqueeze(dim=1)
+    volume = extensions.voxlib.points_to_volume(
+        points.contiguous(), pt_ids, scales, h, w, d
+    )
     return volume, offsets
 
 
@@ -450,25 +453,39 @@ def _get_ray_voxel_intersection(cam_rig, cam_position, cam_look_at, volume):
     # Manually release the memory to avoid OOM
     del volume
     torch.cuda.empty_cache()
-    # No needed to map NULL voxels to SKY. Because the sky points are already generated.
-    # voxel_id[voxel_id == 0] = CLASSES["GAUSSIAN"]["SKY"]
-    return voxel_id.squeeze().cpu().numpy()
+
+    return voxel_id.squeeze()
 
 
-def get_ins_seg_map(points, scales, cam_rig, cam_pos, cam_quat):
-    # points[:, 3] denotes the scale, which is duplicated with "scales"
-    points = torch.from_numpy(points[:, [0, 1, 2, 4]]).cuda()
+def get_visible_points_idx(points, scales, cam_rig, cam_pos, cam_quat):
+    # NOTE: Each point is assigned with a unique ID. The values in the rendered map
+    # denotes the visibility of the points. The values are the same as the point IDs.
+    instances = torch.from_numpy(points[:, 4]).cuda()
+    points = torch.from_numpy(points[:, [0, 1, 2]]).cuda()
     scales = torch.from_numpy(scales).cuda()
     # Scale the volume by 0.2 to reduce the memory usage
     cam_pos = cam_pos.copy() / 5.0
     scales = torch.ceil(scales / 5.0).short()
-    points[:, :3] = torch.floor(points[:, :3] / 5.0).short()
+    points = torch.floor(points / 5.0).short()
     # Generate 3D volume
     volume, offsets = _get_volume(points, scales)
+    # Ray-voxel intersection
     cam_pos -= offsets
-
     cam_look_at = utils.helpers.get_camera_look_at(cam_pos, cam_quat)
-    return _get_ray_voxel_intersection(cam_rig, cam_pos, cam_look_at, volume)
+    vp_map = _get_ray_voxel_intersection(cam_rig, cam_pos, cam_look_at, volume)
+    # Image.fromarray(
+    #     utils.helpers.get_ins_seg_map.r_palatte[vp_map.cpu().numpy() % 16384],
+    # ).save("output/test.jpg")
+
+    # Generate the instance segmentation map as a side product
+    ins_map = instances[vp_map]
+    # Image.fromarray(
+    #     utils.helpers.get_ins_seg_map.r_palatte[ins_map.cpu().numpy()],
+    # ).save("output/test.jpg")
+
+    # Generate the index of visible points
+    vp_idx = torch.unique(vp_map.flatten())
+    return vp_idx.cpu().numpy(), ins_map.cpu().numpy()
 
 
 def _get_seg_map_from_ins_map(ins_map):
@@ -605,11 +622,14 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             sky_points = get_sky_points(local_cords[1:3], cam_pos[2], fov_y / 2)
             points = np.concatenate((points, sky_points), axis=0)
             scales = get_scales(points)
-            ins_map = get_ins_seg_map(points, scales, cam_rig, cam_pos, cam_quat)
-            # # Debug: visualize the instance segmentation map
-            # Image.fromarray(
-            #     utils.helpers.get_ins_seg_map.r_palatte[ins_map],
-            # ).save("output/render/%04d.jpg" % int(r["id"]))
+            # Remove the points that are not visible in the current view.
+            # Generate the instance segmentation map as a side product.
+            vp_idx, ins_map = get_visible_points_idx(
+                points, scales, cam_rig, cam_pos, cam_quat
+            )
+            points = points[vp_idx]
+            logging.debug("%d points in frame %d." % (len(points), int(r["id"])))
+
             seg_map = np.array(
                 Image.open(
                     os.path.join(city_dir, seg_map_file_pattern % (city, int(r["id"])))

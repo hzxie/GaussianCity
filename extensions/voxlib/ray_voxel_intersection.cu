@@ -1,12 +1,3 @@
-/**
- * @File:   ray_voxel_intersection.cu
- * @Author: Haozhe Xie
- * @Date:   2024-02-24 14:22:10
- * @Last Modified by: Haozhe Xie
- * @Last Modified at: 2024-02-24 17:34:34
- * @Email:  root@haozhexie.com
- */
-
 // Copyright (C) 2021 NVIDIA CORPORATION & AFFILIATES.  All rights reserved.
 //
 // This work is made available under the Nvidia Source Code License-NC.
@@ -61,9 +52,10 @@ struct RVIP_Params {
 */
 template <int TILE_DIM>
 static __global__ void ray_voxel_intersection_perspective_kernel(
-    short *__restrict__ out_voxel_id, float *__restrict__ out_depth,
-    float *__restrict__ out_raydirs, const short *__restrict__ in_voxel,
+    int32_t *__restrict__ out_voxel_id, float *__restrict__ out_depth,
+    float *__restrict__ out_raydirs, const int32_t *__restrict__ in_voxel,
     const RVIP_Params p) {
+
   int img_coords[2];
   img_coords[1] = blockIdx.x * TILE_DIM + threadIdx.x;
   img_coords[0] = blockIdx.y * TILE_DIM + threadIdx.y;
@@ -127,7 +119,7 @@ static __global__ void ray_voxel_intersection_perspective_kernel(
        cur_plane++) { // Last cycle is for calculating p2
     float t = nanf("0");
     float t2 = nanf("0");
-    short blk_id = 0;
+    int32_t blk_id = 0;
     // Find the next intersection
     while (!quit) {
       // Find the next smallest t
@@ -259,8 +251,7 @@ std::vector<torch::Tensor> ray_voxel_intersection_perspective_cuda(
   cudaStream_t stream = at::cuda::getCurrentCUDAStream(curDevice);
   torch::Device device = in_voxel.device();
 
-  // assert(in_voxel.dtype() == torch::kU8);
-  assert(in_voxel.dtype() == torch::kInt16); // Minecraft compatibility
+  assert(in_voxel.dtype() == torch::kInt32); // Minecraft compatibility
   assert(in_voxel.dim() == 3);
   assert(cam_ori.dtype() == torch::kFloat32);
   assert(cam_ori.numel() == 3);
@@ -299,9 +290,6 @@ std::vector<torch::Tensor> ray_voxel_intersection_perspective_cuda(
   p.voxel_strides[1] = in_voxel.stride(1);
   p.voxel_strides[2] = in_voxel.stride(2);
 
-  // printf("[Renderer] Voxel resolution: %ld, %ld, %ld\n", p.voxel_dims[0],
-  //        p.voxel_dims[1], p.voxel_dims[2]);
-
   p.img_dims[0] = img_dims[0];
   p.img_dims[1] = img_dims[1];
 
@@ -309,7 +297,7 @@ std::vector<torch::Tensor> ray_voxel_intersection_perspective_cuda(
   // For Minecraft Seg Mask
   torch::Tensor out_voxel_id =
       torch::empty({p.img_dims[0], p.img_dims[1], p.max_samples, 1},
-                   torch::TensorOptions().dtype(torch::kInt16).device(device));
+                   torch::TensorOptions().dtype(torch::kInt32).device(device));
 
   torch::Tensor out_depth;
   // Produce two sets of localcoords, one for entry point, the other one for
@@ -331,8 +319,8 @@ std::vector<torch::Tensor> ray_voxel_intersection_perspective_cuda(
 
   ray_voxel_intersection_perspective_kernel<TILE_DIM>
       <<<dimGrid, dimBlock, 0, stream>>>(
-          out_voxel_id.data_ptr<short>(), out_depth.data_ptr<float>(),
-          out_raydirs.data_ptr<float>(), in_voxel.data_ptr<short>(), p);
+          out_voxel_id.data_ptr<int32_t>(), out_depth.data_ptr<float>(),
+          out_raydirs.data_ptr<float>(), in_voxel.data_ptr<int32_t>(), p);
 
   cudaError_t err = cudaGetLastError();
   if (err != cudaSuccess) {
