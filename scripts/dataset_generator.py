@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-26 19:35:13
+# @Last Modified at: 2024-02-26 20:08:16
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -457,7 +457,7 @@ def _get_ray_voxel_intersection(cam_rig, cam_position, cam_look_at, volume):
     return voxel_id.squeeze()
 
 
-def get_visible_points_idx(points, scales, cam_rig, cam_pos, cam_quat):
+def get_visible_points(points, scales, cam_rig, cam_pos, cam_quat):
     # NOTE: Each point is assigned with a unique ID. The values in the rendered map
     # denotes the visibility of the points. The values are the same as the point IDs.
     instances = torch.from_numpy(points[:, 4]).cuda()
@@ -483,9 +483,7 @@ def get_visible_points_idx(points, scales, cam_rig, cam_pos, cam_quat):
     #     utils.helpers.get_ins_seg_map.r_palatte[ins_map.cpu().numpy()],
     # ).save("output/test.jpg")
 
-    # Generate the index of visible points
-    vp_idx = torch.unique(vp_map.flatten())
-    return vp_idx.cpu().numpy(), ins_map.cpu().numpy()
+    return vp_map.cpu().numpy(), ins_map.cpu().numpy()
 
 
 def _get_seg_map_from_ins_map(ins_map):
@@ -622,13 +620,17 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             sky_points = get_sky_points(local_cords[1:3], cam_pos[2], fov_y / 2)
             points = np.concatenate((points, sky_points), axis=0)
             scales = get_scales(points)
-            # Remove the points that are not visible in the current view.
+
             # Generate the instance segmentation map as a side product.
-            vp_idx, ins_map = get_visible_points_idx(
+            vp_map, ins_map = get_visible_points(
                 points, scales, cam_rig, cam_pos, cam_quat
             )
+            vp_idx = np.sort(np.unique(vp_map))
+            # Remove the points that are not visible in the current view.
             points = points[vp_idx]
             logging.debug("%d points in frame %d." % (len(points), int(r["id"])))
+            # Re-generate the visible points map in the newly indexed points
+            vp_map = np.searchsorted(vp_idx, vp_map)
 
             seg_map = np.array(
                 Image.open(
@@ -640,7 +642,7 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             ) as fp:
                 pickle.dump(
                     {
-                        "ins": ins_map,
+                        "vpm": vp_map,
                         "msk": _get_seg_map_from_ins_map(ins_map) == seg_map,
                         "pts": points,
                     },
