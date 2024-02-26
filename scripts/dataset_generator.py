@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-26 11:04:25
+# @Last Modified at: 2024-02-26 14:22:15
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -212,48 +212,43 @@ def load_projections(output_dir):
 
 
 def get_centers_from_projections(projections):
-    scale = 1
     centers = {}
     for c, p in projections.items():
-        ds_hf = p["TD_HF"]
-        ds_seg = p["SEG"]
-        if c == "CAR":
-            scale = 1
-        else:
-            scale = 4
-            ds_hf = cv2.resize(
-                p["TD_HF"],
-                dsize=(CONSTANTS["MAP_SIZE"] // scale, CONSTANTS["MAP_SIZE"] // scale),
-                interpolation=cv2.INTER_NEAREST,
-            )
-            ds_seg = cv2.resize(
-                p["SEG"],
-                dsize=(CONSTANTS["MAP_SIZE"] // scale, CONSTANTS["MAP_SIZE"] // scale),
-                interpolation=cv2.INTER_NEAREST,
-            )
-
-        instances = np.unique(ds_seg)
+        instances = np.unique(p["SEG"])
         for i in tqdm(instances, desc="Calculating centers for %s" % c):
-            ds_mask = ds_seg == i
-            contours, _ = cv2.findContours(
-                ds_mask.astype(np.uint8),
-                cv2.RETR_EXTERNAL,
-                cv2.CHAIN_APPROX_SIMPLE,
-            )
-            contours = np.vstack(contours).reshape(-1, 2)
-            min_x, max_x = np.min(contours[:, 0]), np.max(contours[:, 0])
-            min_y, max_y = np.min(contours[:, 1]), np.max(contours[:, 1])
-            max_z = np.max(ds_hf[ds_mask]) + 1
+            if i >= CONSTANTS["BLDG_INS_MIN_ID"]:
+                ds_mask = p["SEG"] == i
+                contours, _ = cv2.findContours(
+                    ds_mask.astype(np.uint8),
+                    cv2.RETR_EXTERNAL,
+                    cv2.CHAIN_APPROX_SIMPLE,
+                )
+                contours = np.vstack(contours).reshape(-1, 2)
+                min_x, max_x = np.min(contours[:, 0]), np.max(contours[:, 0])
+                min_y, max_y = np.min(contours[:, 1]), np.max(contours[:, 1])
+                max_z = np.max(p["TD_HF"][ds_mask]) + 1
+            else:
+                min_x, max_x = 0, p["TD_HF"].shape[1]
+                min_y, max_y = 0, p["TD_HF"].shape[0]
+                max_z = np.max(p["TD_HF"])
+                # FWY_DECK and ROAD share the same semantic ID
+                if i in centers:
+                    max_z = max(max_z, centers[i][-1])
+
             centers[i] = np.array(
                 [
-                    (min_x + max_x) / 2 * scale,
-                    (min_y + max_y) / 2 * scale,
-                    (max_x - min_x) * scale,
-                    (max_y - min_y) * scale,
+                    (min_x + max_x) / 2,
+                    (min_y + max_y) / 2,
+                    (max_x - min_x),
+                    (max_y - min_y),
                     max_z,
                 ],
                 dtype=np.int16,
             )
+            # Fix the centers for BLDG_ROOF
+            if i >= CONSTANTS["BLDG_INS_MIN_ID"] and i < CONSTANTS["CAR_INS_MIN_ID"]:
+                centers[i + 1] = centers
+
     return centers
 
 
