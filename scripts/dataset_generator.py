@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-26 20:08:16
+# @Last Modified at: 2024-02-28 15:34:39
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -215,6 +215,9 @@ def get_centers_from_projections(projections):
     centers = {}
     for c, p in projections.items():
         instances = np.unique(p["SEG"])
+        # Append SKY to instances. Since SKY is not in the semantic map.
+        instances = np.append(instances, CLASSES["GAUSSIAN"]["SKY"])
+
         for i in tqdm(instances, desc="Calculating centers for %s" % c):
             if i >= CONSTANTS["BLDG_INS_MIN_ID"]:
                 ds_mask = p["SEG"] == i
@@ -243,7 +246,7 @@ def get_centers_from_projections(projections):
                     (max_y - min_y),
                     max_z,
                 ],
-                dtype=np.int16,
+                dtype=np.float32,
             )
             # Fix the centers for BLDG_ROOF
             if i >= CONSTANTS["BLDG_INS_MIN_ID"] and i < CONSTANTS["CAR_INS_MIN_ID"]:
@@ -354,23 +357,6 @@ def _get_points_from_projection(projection, local_cords=None, include_btm_pts=Tr
     return points.astype(np.int16) if points is not None else None
 
 
-def get_scales(points):
-    classes = points[:, 4]
-    scales = np.ones((points.shape[0], 3), dtype=np.float32) * points[:, [3]]
-    # Set the z-scale = 1 for roads, zones, and waters
-    scales[:, 2][
-        np.isin(
-            classes,
-            [
-                CLASSES["GAUSSIAN"]["ROAD"],
-                CLASSES["GAUSSIAN"]["WATER"],
-                CLASSES["GAUSSIAN"]["ZONE"],
-            ],
-        )
-    ] = 1
-    return scales
-
-
 def get_sky_points(far_plane, cam_z, cam_fov_y):
     points = []
     # Determine the border of sky
@@ -462,7 +448,11 @@ def get_visible_points(points, scales, cam_rig, cam_pos, cam_quat):
     # denotes the visibility of the points. The values are the same as the point IDs.
     instances = torch.from_numpy(points[:, 4]).cuda()
     points = torch.from_numpy(points[:, [0, 1, 2]]).cuda()
-    scales = torch.from_numpy(scales).cuda()
+    scales = (
+        torch.from_numpy(scales).cuda()
+        if isinstance(scales, np.ndarray)
+        else scales.cuda()
+    )
     # Scale the volume by 0.2 to reduce the memory usage
     cam_pos = cam_pos.copy() / 5.0
     scales = torch.ceil(scales / 5.0).short()
@@ -619,7 +609,7 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             points = get_points_from_projections(projections, local_cords)
             sky_points = get_sky_points(local_cords[1:3], cam_pos[2], fov_y / 2)
             points = np.concatenate((points, sky_points), axis=0)
-            scales = get_scales(points)
+            scales = utils.helpers.get_point_scales(points[:, [3]], points[:, 4])
 
             # Generate the instance segmentation map as a side product.
             vp_map, ins_map = get_visible_points(
@@ -656,7 +646,9 @@ if __name__ == "__main__":
         level=logging.INFO,
     )
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", default=os.path.join(PROJECT_HOME, "data"))
+    parser.add_argument(
+        "--data_dir", default=os.path.join(PROJECT_HOME, "data", "city-sample")
+    )
     parser.add_argument("--seg_map", default="SemanticImage/%sSequence.%04d.png")
     parser.add_argument("--gpu", default="0")
     parser.add_argument("--debug", action="store_true")

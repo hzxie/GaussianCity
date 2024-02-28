@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-26 10:58:05
+# @Last Modified at: 2024-02-28 14:49:33
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -62,14 +62,9 @@ class CitySampleDataset(torch.utils.data.Dataset):
         )
 
     def __getitem__(self, idx):
-        idx = idx % self.n_renderings
-        rendering = self.renderings[idx]
+        rendering = self.renderings[idx % self.n_renderings]
+        view_idx = int(rendering["name"].split("/")[-1])
 
-        K = (
-            self.memcached["K"]
-            if "K" in self.memcached
-            else utils.io.IO.get(rendering["K"])
-        )
         Rt = (
             self.memcached["Rt"]
             if "Rt" in self.memcached
@@ -83,12 +78,23 @@ class CitySampleDataset(torch.utils.data.Dataset):
         rgb = np.array(utils.io.IO.get(rendering["rgb"]), dtype=np.float32)
         rgb = rgb / 255.0 * 2 - 1
         pts = utils.io.IO.get(rendering["pts"])
+        Rt = Rt[view_idx]
+        # Normalize the camera position to fit the scale of the map.
+        # Matched with the scripts/dataset_generator.py.
+        cam_pos = (
+            np.array([Rt["tx"], Rt["ty"], Rt["tz"]], dtype=np.float32)
+            / self.cfg.DATASETS.CITY_SAMPLE.SCALE
+        )
+        cam_pos[:2] += self.cfg.DATASETS.CITY_SAMPLE.MAP_SIZE // 2
+
         data = {
-            "K": K["cameras"]["CameraComponent"]["intrinsics"],
-            "Rt": Rt[idx],
+            "cam_pos": cam_pos,
+            "cam_quat": np.array(
+                [Rt["qx"], Rt["qy"], Rt["qz"], Rt["qw"]], dtype=np.float32
+            ),
             "centers": centers,
             "rgb": rgb,
-            "ins": pts["ins"],
+            "vpm": pts["vpm"],
             "msk": pts["msk"],
             "pts": pts["pts"],
         }
@@ -103,7 +109,6 @@ class CitySampleDataset(torch.utils.data.Dataset):
             {
                 "name": "%s/%s/%04d" % (c, s, i),
                 # Camera parameters
-                "K": os.path.join(cfg.DATASETS.CITY_SAMPLE.DIR, c, "CameraRig.json"),
                 "Rt": os.path.join(cfg.DATASETS.CITY_SAMPLE.DIR, c, "CameraPoses.csv"),
                 # The XY centers of the instances
                 "centers": os.path.join(cfg.DATASETS.CITY_SAMPLE.DIR, c, "CENTERS.pkl"),
@@ -147,13 +152,14 @@ class CitySampleDataset(torch.utils.data.Dataset):
                             "height": cfg.TRAIN.GAUSSIAN.CROP_SIZE[1],
                             "width": cfg.TRAIN.GAUSSIAN.CROP_SIZE[0],
                             "n_min_pixels": cfg.DATASETS.CITY_SAMPLE.N_MIN_PIXELS_CROP,
+                            "n_max_points": cfg.DATASETS.CITY_SAMPLE.N_MAX_POINTS_CROP,
                         },
-                        "objects": ["rgb", "ins", "msk"],
+                        "objects": ["rgb", "vpm", "msk"],
                     },
                     {
                         "callback": "RemoveUnseenPoints",
                         "parameters": None,
-                        "objects": ["pts", "ins"],
+                        "objects": ["pts", "vpm"],
                     },
                     {
                         "callback": "NormalizePointCords",

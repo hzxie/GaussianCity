@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-25 22:06:59
+# @Last Modified at: 2024-02-28 14:50:44
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -18,14 +18,20 @@ cfg                                             = __C
 #
 cfg.DATASETS                                     = EasyDict()
 cfg.DATASETS.CITY_SAMPLE                         = EasyDict()
-cfg.DATASETS.CITY_SAMPLE.DIR                     = "./data"
-cfg.DATASETS.CITY_SAMPLE.PIN_MEMORY              = ["K", "Rt", "centers"]
+cfg.DATASETS.CITY_SAMPLE.DIR                     = "./data/city-sample"
+cfg.DATASETS.CITY_SAMPLE.PIN_MEMORY              = ["Rt", "centers"]
+cfg.DATASETS.CITY_SAMPLE.CAM_K                   = [2828.2831640142235, 0, 960, 0, 2828.2831640142235, 540, 0, 0, 1]
 cfg.DATASETS.CITY_SAMPLE.N_REPEAT                = 1
 cfg.DATASETS.CITY_SAMPLE.N_CLASSES               = 9
-cfg.DATASETS.CITY_SAMPLE.N_MIN_PIXELS_CROP       = 64
 cfg.DATASETS.CITY_SAMPLE.N_CITIES                = 1
 cfg.DATASETS.CITY_SAMPLE.N_VIEWS                 = 3000
 cfg.DATASETS.CITY_SAMPLE.CITY_STYLES             = ["Day", "Night"]
+## The following parameters is for training efficiency
+cfg.DATASETS.CITY_SAMPLE.N_MIN_PIXELS_CROP       = 64
+cfg.DATASETS.CITY_SAMPLE.N_MAX_POINTS_CROP       = 16384
+## The following parameters should be the same as scripts/dataset_generator.py
+cfg.DATASETS.CITY_SAMPLE.MAP_SIZE                = 24576
+cfg.DATASETS.CITY_SAMPLE.SCALE                   = 20
 
 #
 # Constants
@@ -55,7 +61,7 @@ cfg.MEMCACHED.CLIENT_CONFIG                      = "/mnt/lustre/share/memcached_
 #
 cfg.WANDB                                        = EasyDict()
 cfg.WANDB.ENABLED                                = False
-cfg.WANDB.PROJECT                                = "City-Gen-HD"
+cfg.WANDB.PROJECT                                = "GaussianCity"
 cfg.WANDB.ENTITY                                 = "haozhexie"
 cfg.WANDB.MODE                                   = "online"
 cfg.WANDB.RUN_ID                                 = None
@@ -81,12 +87,12 @@ cfg.TRAIN                                        = EasyDict()
 cfg.TRAIN.GAUSSIAN                               = EasyDict()
 cfg.TRAIN.GAUSSIAN.DATASET                       = "CITY_SAMPLE"
 cfg.TRAIN.GAUSSIAN.BATCH_SIZE                    = 1
-cfg.TRAIN.GAUSSIAN.CROP_SIZE                     = (224, 224)
+cfg.TRAIN.GAUSSIAN.CROP_SIZE                     = (336, 336)
 
 #
 # Test
 #
 cfg.TEST                                         = EasyDict()
 cfg.TEST.GAUSSIAN                                = EasyDict()
-cfg.TEST.GAUSSIAN.CROP_SIZE                      = (480, 270)
+cfg.TEST.GAUSSIAN.CROP_SIZE                      = (960, 540)
 # fmt: on

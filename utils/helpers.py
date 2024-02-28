@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-20 10:03:14
+# @Last Modified at: 2024-02-26 20:55:40
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -183,6 +183,34 @@ def intrinsic_to_fov(focal_length, img_size):
 def get_camera_look_at(cam_position, cam_quaternion, step=1000):
     mat3 = scipy.spatial.transform.Rotation.from_quat(cam_quaternion).as_matrix()
     return cam_position + mat3[:3, 0] * step
+
+
+def get_point_scales(scales, classes):
+    CLASSES = {"ROAD": 1, "WATER": 4, "ZONE": 6}
+    if isinstance(scales, np.ndarray):
+        scales = torch.from_numpy(scales)
+    if isinstance(classes, np.ndarray):
+        classes = torch.from_numpy(classes)
+
+    scales = (
+        torch.ones(classes.shape[0], 3, dtype=torch.float32, device=classes.device)
+        * scales
+    )
+    # Set the z-scale = 1 for roads, zones, and waters
+    scales[:, 2][
+        torch.isin(
+            classes,
+            torch.tensor(
+                [
+                    CLASSES["ROAD"],
+                    CLASSES["WATER"],
+                    CLASSES["ZONE"],
+                ],
+                device=classes.device,
+            ),
+        )
+    ] = 1
+    return scales
 
 
 def dump_ptcloud_ply(ply_fpath, xyz, rgb, attrs={}):

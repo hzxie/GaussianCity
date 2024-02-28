@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 14:18:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-26 14:21:47
+# @Last Modified at: 2024-02-28 15:51:14
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -41,7 +41,7 @@ class ToTensor(object):
     def __call__(self, data):
         for k, v in data.items():
             if k in self.objects:
-                if k == "msk" or k == "ins":
+                if k == "msk" or k == "vpm":
                     # H, W -> C, H, W
                     v = v[None, ...]
                 elif k == "rgb":
@@ -60,6 +60,9 @@ class Crop(object):
         self.mode = parameters["mode"] if "mode" in parameters else "random"
         self.n_min_pixels = (
             parameters["n_min_pixels"] if "n_min_pixels" in parameters else 0
+        )
+        self.n_max_points = (
+            parameters["n_max_points"] if "n_max_points" in parameters else 0
         )
         self.objects = objects
 
@@ -82,15 +85,27 @@ class Crop(object):
         for _ in range(N_MAX_TRY_TIMES):
             offset_x = self._get_offset(w, self.width)
             offset_y = self._get_offset(h, self.height)
-            patch = self._get_img_patch(data["msk"], offset_x, offset_y)
-            n_pixels = np.count_nonzero(patch)
+            mask = self._get_img_patch(data["msk"], offset_x, offset_y)
+            visible_pts = self._get_img_patch(data["vpm"], offset_x, offset_y)
+
+            n_pixels = np.count_nonzero(mask)
             if n_pixels >= self.n_min_pixels:
-                break
+                if self.n_max_points <= 0:
+                    break
+                n_points = np.unique(visible_pts)
+                if len(n_points) <= self.n_max_points:
+                    break
 
         # Crop all data fields simultaneously
         data["crop"] = {"x": offset_x, "y": offset_y, "w": self.width, "h": self.height}
         for k, v in data.items():
-            if k in self.objects:
+            if k == "msk":
+                # Prevent duplicated computation
+                data[k] = mask
+            elif k == "vpm":
+                # Prevent duplicated computation
+                data[k] = visible_pts
+            elif k in self.objects:
                 data[k] = self._get_img_patch(v, offset_x, offset_y)
 
         return data
@@ -101,9 +116,8 @@ class RemoveUnseenPoints(object):
         self.objects = objects
 
     def __call__(self, data):
-        im_instances = np.unique(data["ins"])
-        pt_instances = data["pts"][:, -1]
-        data["pts"] = data["pts"][np.isin(pt_instances, im_instances)]
+        visible_pts = np.unique(data["vpm"])
+        data["pts"] = data["pts"][visible_pts]
         return data
 
 
@@ -117,9 +131,10 @@ class NormalizePointCords(object):
         for i in instances:
             is_pts = data["pts"][:, -1] == i
             cx, cy, w, h, d = data["centers"][i]
+
             rel_cords[is_pts, 0] = (data["pts"][is_pts, 0] - cx) / w * 2
             rel_cords[is_pts, 1] = (data["pts"][is_pts, 1] - cy) / h * 2
-            rel_cords[is_pts, 2] = data["pts"][is_pts, 2] / d
+            rel_cords[is_pts, 2] = np.clip(data["pts"][is_pts, 2] / d, 0, 1)
 
         data["pts"] = np.concatenate((data["pts"], rel_cords), axis=1)
         return data
