@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 21:27:22
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-04 19:26:43
+# @Last Modified at: 2024-02-28 15:58:18
 # @Email:  root@haozhexie.com
 
 
@@ -16,7 +16,7 @@ import torch
 import os
 import sys
 
-import core.gancraft
+import core
 import utils.distributed
 
 from pprint import pprint
@@ -122,19 +122,13 @@ def main():
 
     # Start train/test processes
     if not args.test:
-        if cfg.CONST.NETWORK == "GANCraft":
-            core.gancraft.train(cfg)
-        else:
-            raise Exception("Unknown network: %s" % cfg.CONST.NETWORK)
+        core.train(cfg)
     else:
         if "CKPT" not in cfg.CONST or not os.path.exists(cfg.CONST.CKPT):
             logging.error("Please specify the file path of checkpoint.")
             sys.exit(2)
 
-        if cfg.CONST.NETWORK == "GANCraft":
-            core.gancraft.test(cfg)
-        else:
-            raise Exception("Unknown network: %s" % cfg.CONST.NETWORK)
+        core.test(cfg)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-01-31 14:11:22
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-05 16:51:04
+# @Last Modified at: 2024-03-02 15:11:03
 # @Email:  root@haozhexie.com
 #
 # References:
@@ -41,104 +41,6 @@ class Activations:
     @classmethod
     def trunc_exp(cls, x):
         return TruncExp.apply(x)
-
-
-class Camera:
-    def __init__(self, k, w2c, height, width, z_near=0.01, z_far=100.0):
-        self.height = height
-        self.width = width
-        self.z_near = z_near
-        self.z_far = z_far
-
-        self.fov_x, self.fov_y = self._get_fov_from_intrinsics(k, height, width)
-        self.world_view_transform = np.transpose(w2c, (0, 1))
-        self.projection_matrix = self._get_projection_matrix(
-            self.z_near, self.z_far, self.fov_x, self.fov_y
-        ).to(w2c.device)
-        self.full_proj_transform = (
-            self.world_view_transform.unsqueeze(0).bmm(
-                self.projection_matrix.unsqueeze(0)
-            )
-        ).squeeze(0)
-        self.camera_center = self.world_view_transform.inverse()[3, :3]
-
-    @staticmethod
-    def get_camera_from_c2w(k, c2w, height, width):
-        return Camera(k, torch.inverse(c2w), height, width)
-
-    @staticmethod
-    def _get_projection_matrix(z_near, z_far, fov_x, fov_y):
-        tan_half_fov_y = math.tan((fov_y / 2))
-        tan_half_fov_x = math.tan((fov_x / 2))
-        top = tan_half_fov_y * z_near
-        bottom = -top
-        right = tan_half_fov_x * z_far
-        left = -right
-
-        P = torch.zeros(4, 4)
-        z_sign = 1.0
-        P[0, 0] = 2.0 * z_near / (right - left)
-        P[1, 1] = 2.0 * z_near / (top - bottom)
-        P[0, 2] = (right + left) / (right - left)
-        P[1, 2] = (top + bottom) / (top - bottom)
-        P[3, 2] = z_sign
-        P[2, 2] = z_sign * z_far / (z_far - z_near)
-        P[2, 3] = -(z_far * z_near) / (z_far - z_near)
-        return P.transpose(0, 1)
-
-    @staticmethod
-    def _get_fov_from_intrinsics(k, w, h):
-        fx, fy = k[0, 0], k[1, 1]
-        fov_x = 2 * torch.arctan2(w, 2 * fx)
-        fov_y = 2 * torch.arctan2(h, 2 * fy)
-        return fov_x, fov_y
-
-
-class GaussianModel:
-    def __init__(self, xyz, opacity, rotation, scaling, shs):
-        self.xyz = xyz
-        self.opacity = opacity
-        self.rotation = rotation
-        self.scaling = scaling
-        self.shs = shs
-
-    def get_attributes(self):
-        attrs = ["x", "y", "z", "nx", "ny", "nz"]
-        features_dc = self.shs[:, :1]
-        features_rest = self.shs[:, 1:]
-        for i in range(features_dc.shape[1] * features_dc.shape[2]):
-            attrs.append("f_dc_{}".format(i))
-        for i in range(features_rest.shape[1] * features_rest.shape[2]):
-            attrs.append("f_rest_{}".format(i))
-
-        attrs.append("opacity")
-        for i in range(self.scaling.shape[1]):
-            attrs.append("scale_{}".format(i))
-        for i in range(self.rotation.shape[1]):
-            attrs.append("rot_{}".format(i))
-
-        return attrs
-
-    def get_ply_elements(self):
-        xyz = self.xyz.detach().cpu().numpy()
-        normals = np.zeros_like(xyz)
-        features_dc = self.shs[:, :1]
-        features_rest = self.shs[:, 1:]
-        f_dc = features_dc.detach().flatten(start_dim=1).contiguous().cpu().numpy()
-        f_rest = features_rest.detach().flatten(start_dim=1).contiguous().cpu().numpy()
-        opacities = Activations.inverse_sigmoid(
-            torch.clamp(self.opacity, 1e-3, 1 - 1e-3).detach().cpu().numpy()
-        )
-        scale = np.log(self.scaling.detach().cpu().numpy())
-        rotation = self.rotation.detach().cpu().numpy()
-
-        dtype_full = [(attribute, "f4") for attribute in self.get_attributes()]
-        elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        attributes = np.concatenate(
-            (xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1
-        )
-        elements[:] = list(map(tuple, attributes))
-        return elements
 
 
 class GSLayer(torch.nn.Module):
@@ -205,9 +107,53 @@ class GSLayer(torch.nn.Module):
 
             gs_attrs[name] = value
 
-        return GaussianModel(**gs_attrs)
+        return gs_attrs
 
 
-class GSRenderer(torch.nn.Module):
+class GaussianGenerator(torch.nn.Module):
+    def __init__(self, cfg, n_classes):
+        super(GaussianGenerator, self).__init__()
+        self.cfg = cfg
+        self.n_classes = n_classes
+        self.l_xyz = torch.nn.Linear(3, 64)
+        self.l_cls = torch.nn.Linear(n_classes, 64)
+        self.l_z = torch.nn.Linear(cfg.NETWORK.GAUSSIAN.Z_DIM, 64)
+        self.l_f = torch.nn.Linear(64 * 3, cfg.NETWORK.GAUSSIAN.FEATURE_DIM)
+        self.te = torch.nn.TransformerEncoder(
+            torch.nn.TransformerEncoderLayer(
+                d_model=cfg.NETWORK.GAUSSIAN.FEATURE_DIM,
+                nhead=cfg.NETWORK.GAUSSIAN.N_ATTENTION_HEADS,
+                batch_first=True,
+            ),
+            num_layers=cfg.NETWORK.GAUSSIAN.N_TRANSFORMER_LAYERS,
+        )
+        self.l_out = torch.nn.Linear(cfg.NETWORK.GAUSSIAN.FEATURE_DIM, 3)
+
+    def forward(self, points):
+        masks = None
+        # Create attention masks for padding points
+        # n_pts = points.size(1)
+        # masks = torch.zeros(
+        #     self.cfg.NETWORK.GAUSSIAN.N_ATTENTION_HEADS,
+        #     n_pts,
+        #     n_pts,
+        #     dtype=torch.float32,
+        #     device=points.device,
+        # )
+        # masks[:, :n_act_pts, :n_act_pts] = 1
+
+        f_xyz = self.l_xyz(points[:, :, :3])
+        f_cls = self.l_cls(points[:, :, 3 : 3 + self.n_classes])
+        f_z = self.l_z(points[:, :, -self.cfg.NETWORK.GAUSSIAN.Z_DIM :])
+        f = self.l_f(torch.cat([f_xyz, f_cls, f_z], dim=2))
+        f = self.te(f, masks)
+        return self.l_out(f)
+
+
+class GaussianDiscriminator(torch.nn.Module):
     def __init__(self, cfg):
-        super(GSRenderer, self).__init__()
+        super(GaussianDiscriminator, self).__init__()
+        self.layer = torch.nn.Linear(3, 3)
+
+    def forward(self, points):
+        return None

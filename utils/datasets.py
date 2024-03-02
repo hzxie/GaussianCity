@@ -4,12 +4,12 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-28 14:49:33
+# @Last Modified at: 2024-03-02 15:31:10
 # @Email:  root@haozhexie.com
 
+import copy
 import numpy as np
 import os
-import random
 import torch
 
 import utils.io
@@ -36,8 +36,10 @@ def collate_fn(batch):
             data[k].append(v)
 
     for k, v in data.items():
-        if type(v[0]) == torch.Tensor:
+        if isinstance(v[0], torch.Tensor):
             data[k] = torch.stack(v, 0)
+        elif isinstance(v[0], int):
+            data[k] = torch.stack([torch.tensor(v)], 0)
         else:
             data[k] = v
 
@@ -53,6 +55,38 @@ class CitySampleDataset(torch.utils.data.Dataset):
         self.renderings = self._get_renderings(cfg, split)
         self.n_renderings = len(self.renderings)
         self.transforms = self._get_data_transforms(cfg, split)
+
+    def get_K(self):
+        return np.array(self.cfg.DATASETS.CITY_SAMPLE.CAM_K, dtype=np.float32).reshape(
+            (3, 3)
+        )
+
+    def get_n_classes(self):
+        return self.cfg.DATASETS.CITY_SAMPLE.N_CLASSES
+
+    def get_special_z_scale_classes(self):
+        return list(self.cfg.DATASETS.CITY_SAMPLE.Z_SCALE_SPECIAL_CLASSES.values())
+
+    def instances_to_classes(self, instances):
+        # Make it compatible in both numpy and PyTorch
+        cfg = self.cfg.DATASETS.CITY_SAMPLE
+        bldg_facade_idx = (
+            (instances >= cfg.BLDG_RANGE[0])
+            & (instances < cfg.BLDG_RANGE[1])
+            & (instances % 2 == 0)
+        )
+        bldg_roof_idx = (
+            (instances >= cfg.BLDG_RANGE[0])
+            & (instances < cfg.BLDG_RANGE[1])
+            & (instances % 2 == 1)
+        )
+        car_idx = (instances >= cfg.CAR_RANGE[0]) & (instances < cfg.CAR_RANGE[1])
+
+        classes = copy.deepcopy(instances)
+        classes[bldg_facade_idx] = cfg.BLDG_FACADE_CLSID
+        classes[bldg_roof_idx] = cfg.BLDG_ROOF_CLSID
+        classes[car_idx] = cfg.CAR_CLSID
+        return classes
 
     def __len__(self):
         return (
@@ -151,8 +185,8 @@ class CitySampleDataset(torch.utils.data.Dataset):
                         "parameters": {
                             "height": cfg.TRAIN.GAUSSIAN.CROP_SIZE[1],
                             "width": cfg.TRAIN.GAUSSIAN.CROP_SIZE[0],
-                            "n_min_pixels": cfg.DATASETS.CITY_SAMPLE.N_MIN_PIXELS_CROP,
-                            "n_max_points": cfg.DATASETS.CITY_SAMPLE.N_MAX_POINTS_CROP,
+                            "n_min_pixels": cfg.TRAIN.GAUSSIAN.N_MIN_PIXELS,
+                            "n_max_points": cfg.TRAIN.GAUSSIAN.N_MAX_POINTS,
                         },
                         "objects": ["rgb", "vpm", "msk"],
                     },

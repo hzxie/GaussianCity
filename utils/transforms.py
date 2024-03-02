@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 14:18:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-28 15:51:14
+# @Last Modified at: 2024-03-02 15:35:27
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -78,7 +78,7 @@ class Crop(object):
         return img[offset_y : offset_y + self.height, offset_x : offset_x + self.width]
 
     def __call__(self, data):
-        N_MAX_TRY_TIMES = 100
+        N_MAX_TRY_TIMES = 500
         img = data[self.objects[0]]
         h, w = img.shape[0], img.shape[1]
         # Check the cropped patch contains enough informative pixels for training
@@ -91,13 +91,20 @@ class Crop(object):
             n_pixels = np.count_nonzero(mask)
             if n_pixels >= self.n_min_pixels:
                 if self.n_max_points <= 0:
+                    assert False, "Never reach here"
                     break
-                n_points = np.unique(visible_pts)
-                if len(n_points) <= self.n_max_points:
+                n_points = len(np.unique(visible_pts))
+                if n_points <= self.n_max_points:
                     break
 
         # Crop all data fields simultaneously
-        data["crop"] = {"x": offset_x, "y": offset_y, "w": self.width, "h": self.height}
+        data["npt"] = n_points
+        data["crp"] = {
+            "x": offset_x,
+            "y": offset_y,
+            "w": self.width,
+            "h": self.height,
+        }
         for k, v in data.items():
             if k == "msk":
                 # Prevent duplicated computation
@@ -134,7 +141,7 @@ class NormalizePointCords(object):
 
             rel_cords[is_pts, 0] = (data["pts"][is_pts, 0] - cx) / w * 2
             rel_cords[is_pts, 1] = (data["pts"][is_pts, 1] - cy) / h * 2
-            rel_cords[is_pts, 2] = np.clip(data["pts"][is_pts, 2] / d, 0, 1)
+            rel_cords[is_pts, 2] = np.clip(data["pts"][is_pts, 2] / d * 2 - 1, -1, 1)
 
         data["pts"] = np.concatenate((data["pts"], rel_cords), axis=1)
         return data

@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-26 20:55:40
+# @Last Modified at: 2024-03-02 15:21:55
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -123,52 +123,33 @@ def get_ins_colors(obj, random=True):
     )
 
 
-def masks_to_onehots(masks, n_class, ignored_classes=[]):
-    b, h, w = masks.shape
-    n_class_actual = n_class - len(ignored_classes)
-    one_hot_masks = torch.zeros(
-        (b, n_class_actual, h, w), dtype=torch.float32, device=masks.device
-    )
+def get_one_hot(classes, n_class):
+    b, n, c = classes.size()
+    assert c == 1, "Unexpected tensor shape (%d, %d)" % (n, c)
 
-    n_class_cnt = 0
-    for i in range(n_class):
-        if i not in ignored_classes:
-            one_hot_masks[:, n_class_cnt] = masks == i
-            n_class_cnt += 1
-
-    return one_hot_masks
+    one_hot = torch.zeros(b, n, n_class).to(classes.device)
+    one_hot.scatter_(2, classes.long(), 1)
+    return one_hot
 
 
-def mask_to_onehot(mask, n_class, ignored_classes=[]):
-    h, w = mask.shape
-    n_class_actual = n_class - len(ignored_classes)
-    one_hot_masks = np.zeros((h, w, n_class_actual), dtype=np.uint8)
+def get_z(instances, z_dim):
+    b, n, c = instances.size()
+    assert c == 1, "Unexpected tensor shape (%d, %d)" % (n, c)
 
-    n_class_cnt = 0
-    for i in range(n_class):
-        if i not in ignored_classes:
-            one_hot_masks[..., n_class_cnt] = mask == i
-            n_class_cnt += 1
+    unique_instances = [i.item() for i in torch.unique(instances).short()]
+    unique_z = {
+        ui: torch.rand(1, z_dim).to(instances.device) for ui in unique_instances
+    }
 
-    return one_hot_masks
-
-
-def onehot_to_mask(onehot, ignored_classes=[]):
-    mask = torch.argmax(onehot, dim=1)
-    for ic in ignored_classes:
-        mask[mask >= ic] += 1
-
-    return mask
+    z = torch.zeros(b, n, z_dim).to(instances.device)
+    for ui in unique_instances:
+        z[instances[..., 0] == ui] = unique_z[ui]
+    return z
 
 
 def tensor_to_image(tensor, mode):
-    # assert mode in ["HeightField", "FootprintCtr", "SegMap", "RGB"]
     tensor = tensor.cpu().numpy()
-    if mode == "HeightField":
-        return tensor.transpose((1, 2, 0)).squeeze() / np.max(tensor)
-    elif mode == "FootprintCtr":
-        return tensor.transpose((1, 2, 0)).squeeze()
-    elif mode == "SegMap":
+    if mode == "SegMap":
         return get_seg_map(tensor.squeeze()).convert("RGB")
     elif mode == "RGB":
         return tensor.squeeze().transpose((1, 2, 0)) / 2 + 0.5
@@ -185,32 +166,69 @@ def get_camera_look_at(cam_position, cam_quaternion, step=1000):
     return cam_position + mat3[:3, 0] * step
 
 
-def get_point_scales(scales, classes):
-    CLASSES = {"ROAD": 1, "WATER": 4, "ZONE": 6}
+def get_pad_tensor(tensor, target_size):
+    b, n, c = tensor.size()
+    pad = torch.zeros(b, target_size - n, c, dtype=tensor.dtype, device=tensor.device)
+    return torch.cat((tensor, pad), dim=1)
+
+
+def get_point_scales(scales, classes, special_z_scale_classes=[]):
     if isinstance(scales, np.ndarray):
         scales = torch.from_numpy(scales)
     if isinstance(classes, np.ndarray):
         classes = torch.from_numpy(classes)
 
-    scales = (
-        torch.ones(classes.shape[0], 3, dtype=torch.float32, device=classes.device)
-        * scales
-    )
+    repeat = [1 for _ in scales.size()]
+    repeat[-1] = 3
+    scales_3d = torch.ones_like(scales).repeat(repeat) * scales
     # Set the z-scale = 1 for roads, zones, and waters
-    scales[:, 2][
+    scales_3d[..., 2][
         torch.isin(
-            classes,
+            classes.squeeze(dim=-1),
             torch.tensor(
-                [
-                    CLASSES["ROAD"],
-                    CLASSES["WATER"],
-                    CLASSES["ZONE"],
-                ],
+                list(special_z_scale_classes),
                 device=classes.device,
             ),
         )
     ] = 1
-    return scales
+    return scales_3d
+
+
+def get_gaussian_points(n_pts, xyz, scales, rgbs):
+    batch_size = rgbs.size(0)
+    rgbs = rgbs[:, :n_pts]
+    opacity = torch.ones((batch_size, n_pts, 1), device=rgbs.device)
+    rotations = torch.cat(
+        [
+            torch.ones(batch_size, n_pts, 1, device=rgbs.device),
+            torch.zeros(batch_size, n_pts, 3, device=rgbs.device),
+        ],
+        dim=-1,
+    )
+    return torch.cat((xyz, opacity, scales, rotations, rgbs), dim=-1)
+
+
+def get_gaussian_rasterization(
+    gs_points, rasterizator, cam_pos, cam_quat, crop_bboxes=None
+):
+    images = []
+    batch_size = gs_points.size(0)
+    for i in range(batch_size):
+        img = rasterizator(
+            gs_points[i],
+            cam_pos[i],
+            cam_quat[i],
+        )
+        if crop_bboxes is not None:
+            cbx = crop_bboxes[i]
+            img = img[
+                :,
+                cbx["y"] : cbx["y"] + cbx["h"],
+                cbx["x"] : cbx["x"] + cbx["w"],
+            ]
+        images.append(img)
+
+    return torch.stack(images, dim=0)
 
 
 def dump_ptcloud_ply(ply_fpath, xyz, rgb, attrs={}):
