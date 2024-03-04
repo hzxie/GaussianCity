@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-04 16:11:24
+# @Last Modified at: 2024-03-04 17:03:33
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -145,16 +145,6 @@ def get_z(instances, z_dim):
     for ui in unique_instances:
         z[instances[..., 0] == ui] = unique_z[ui]
     return z
-
-
-def tensor_to_image(tensor, mode):
-    tensor = tensor.cpu().numpy()
-    if mode == "SegMap":
-        return get_seg_map(tensor.squeeze()).convert("RGB")
-    elif mode == "RGB":
-        return tensor.squeeze().transpose((1, 2, 0)) / 2 + 0.5
-    else:
-        raise Exception("Unknown mode: %s" % mode)
 
 
 def intrinsic_to_fov(focal_length, img_size):
