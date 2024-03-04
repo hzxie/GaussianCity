@@ -4,12 +4,14 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 14:18:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-02 15:35:27
+# @Last Modified at: 2024-03-04 10:32:36
 # @Email:  root@haozhexie.com
 
 import numpy as np
 import random
 import torch
+
+import utils.helpers
 
 
 class Compose(object):
@@ -41,10 +43,10 @@ class ToTensor(object):
     def __call__(self, data):
         for k, v in data.items():
             if k in self.objects:
-                if k == "msk" or k == "vpm":
+                if k in ["msk"]:
                     # H, W -> C, H, W
                     v = v[None, ...]
-                elif k == "rgb":
+                elif k in ["rgb", "seg"]:
                     # H, W, C -> C, H, W
                     v = v.transpose((2, 0, 1))
 
@@ -144,4 +146,33 @@ class NormalizePointCords(object):
             rel_cords[is_pts, 2] = np.clip(data["pts"][is_pts, 2] / d * 2 - 1, -1, 1)
 
         data["pts"] = np.concatenate((data["pts"], rel_cords), axis=1)
+        return data
+
+
+class ToOneHot(object):
+    def __init__(self, parameters, objects):
+        self.n_classes = parameters["n_classes"]
+        self.ignored_classes = (
+            parameters["ignored_classes"] if "ignored_classes" in parameters else []
+        )
+        self.objects = objects
+
+    def _to_onehot(self, mask):
+        h, w = mask.shape
+        n_class_actual = self.n_classes - len(self.ignored_classes)
+        one_hot_masks = np.zeros((h, w, n_class_actual), dtype=np.uint8)
+
+        n_class_cnt = 0
+        for i in range(self.n_classes):
+            if i not in self.ignored_classes:
+                one_hot_masks[..., n_class_cnt] = mask == i
+                n_class_cnt += 1
+
+        return one_hot_masks
+
+    def __call__(self, data):
+        for k, v in data.items():
+            if k in self.objects:
+                data[k] = self._to_onehot(v)
+
         return data

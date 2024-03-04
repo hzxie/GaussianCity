@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-02 15:31:10
+# @Last Modified at: 2024-03-04 10:15:36
 # @Email:  root@haozhexie.com
 
 import copy
@@ -111,6 +111,7 @@ class CitySampleDataset(torch.utils.data.Dataset):
         )
         rgb = np.array(utils.io.IO.get(rendering["rgb"]), dtype=np.float32)
         rgb = rgb / 255.0 * 2 - 1
+        seg = np.array(utils.io.IO.get(rendering["seg"]).convert("P"))
         pts = utils.io.IO.get(rendering["pts"])
         Rt = Rt[view_idx]
         # Normalize the camera position to fit the scale of the map.
@@ -128,6 +129,7 @@ class CitySampleDataset(torch.utils.data.Dataset):
             ),
             "centers": centers,
             "rgb": rgb,
+            "seg": seg,
             "vpm": pts["vpm"],
             "msk": pts["msk"],
             "pts": pts["pts"],
@@ -152,6 +154,12 @@ class CitySampleDataset(torch.utils.data.Dataset):
                     "ColorImage",
                     s,
                     "%sSequence.%04d.jpeg" % (c, i),
+                ),
+                "seg": os.path.join(
+                    cfg.DATASETS.CITY_SAMPLE.DIR,
+                    c,
+                    "SemanticImage",
+                    "%sSequence.%04d.png" % (c, i),
                 ),
                 # Precomputed Points in the viewpoint (scripts/dataset_generator.py)
                 "pts": os.path.join(
@@ -188,7 +196,7 @@ class CitySampleDataset(torch.utils.data.Dataset):
                             "n_min_pixels": cfg.TRAIN.GAUSSIAN.N_MIN_PIXELS,
                             "n_max_points": cfg.TRAIN.GAUSSIAN.N_MAX_POINTS,
                         },
-                        "objects": ["rgb", "vpm", "msk"],
+                        "objects": ["rgb", "seg", "vpm", "msk"],
                     },
                     {
                         "callback": "RemoveUnseenPoints",
@@ -201,10 +209,18 @@ class CitySampleDataset(torch.utils.data.Dataset):
                         "objects": ["pts", "centers"],
                     },
                     {
+                        "callback": "ToOneHot",
+                        "parameters": {
+                            "n_classes": cfg.DATASETS.CITY_SAMPLE.N_CLASSES,
+                        },
+                        "objects": ["seg"],
+                    },
+                    {
                         "callback": "ToTensor",
                         "parameters": None,
                         "objects": [
                             "rgb",
+                            "seg",
                             "msk",
                             "pts",
                         ],
@@ -234,10 +250,18 @@ class CitySampleDataset(torch.utils.data.Dataset):
                         "objects": ["pts", "centers"],
                     },
                     {
+                        "callback": "ToOneHot",
+                        "parameters": {
+                            "n_classes": cfg.DATASETS.CITY_SAMPLE.N_CLASSES,
+                        },
+                        "objects": ["seg"],
+                    },
+                    {
                         "callback": "ToTensor",
                         "parameters": None,
                         "objects": [
                             "rgb",
+                            "seg",
                             "msk",
                             "pts",
                         ],

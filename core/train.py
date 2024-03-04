@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-02 15:36:37
+# @Last Modified at: 2024-03-04 10:39:30
 # @Email:  root@haozhexie.com
 
 import logging
@@ -61,7 +61,7 @@ def train(cfg):
 
     # Set up networks
     gaussian_g = models.gaussian.GaussianGenerator(cfg, train_dataset.get_n_classes())
-    gaussian_d = models.gaussian.GaussianDiscriminator(cfg)
+    gaussian_d = models.gaussian.GaussianDiscriminator(cfg, train_dataset.get_n_classes())
     if torch.cuda.is_available():
         logging.info("Start running the DDP on rank %d." % local_rank)
         gaussian_g = torch.nn.parallel.DistributedDataParallel(
@@ -170,7 +170,9 @@ def train(cfg):
             # Move data to GPU
             pts = utils.helpers.var_or_cuda(data["pts"], gaussian_g.device)
             rgb = utils.helpers.var_or_cuda(data["rgb"], gaussian_g.device)
+            seg = utils.helpers.var_or_cuda(data["seg"], gaussian_g.device)
             msk = utils.helpers.var_or_cuda(data["msk"], gaussian_g.device)
+
             # Split pts into attributes
             abs_xyz = pts[:, :, :3]
             rel_xyz = pts[:, :, 5:]
@@ -181,14 +183,16 @@ def train(cfg):
                 scales, classes, train_dataset.get_special_z_scale_classes()
             )
             onehots = utils.helpers.get_one_hot(
-                classes - 1, train_dataset.get_n_classes()
-            )  # Class ID = 0 denotes NULL. There is no points assigned to this class
+                classes, train_dataset.get_n_classes()
+            )
             z = utils.helpers.get_z(instances, cfg.NETWORK.GAUSSIAN.Z_DIM)
             # Make the number of points in the batch consistent
             n_pts = pts.size(1)
             n_max_pts = torch.max(data["npt"])
             pts = torch.cat([rel_xyz, onehots, z], dim=2)
             pts = utils.helpers.get_pad_tensor(pts, n_max_pts)
+
+            # Discriminator Update Step
 
             # Generator Update Step
             try:
@@ -209,7 +213,8 @@ def train(cfg):
                 loss_g.backward()
                 optimizer_g.step()
             except Exception as ex:
-                logging.exception(ex)
+                logging.warning("#Points: %d, Msg: %s" % (n_max_pts, ex))
+                torch.cuda.empty_cache()
                 continue
             finally:
                 torch.cuda.empty_cache()

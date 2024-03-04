@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-02 15:06:24
+# @Last Modified at: 2024-03-04 10:25:33
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -81,6 +81,7 @@ cfg.NETWORK.GAUSSIAN.Z_DIM                       = 256
 cfg.NETWORK.GAUSSIAN.FEATURE_DIM                 = 512
 cfg.NETWORK.GAUSSIAN.N_ATTENTION_HEADS           = 8
 cfg.NETWORK.GAUSSIAN.N_TRANSFORMER_LAYERS        = 128
+cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE          = 128
 
 #
 # Train
@@ -97,7 +98,7 @@ cfg.TRAIN.GAUSSIAN.DISCRIMINATOR_N_WARMUP_ITERS  = 100000
 cfg.TRAIN.GAUSSIAN.EPS                           = 1e-7
 cfg.TRAIN.GAUSSIAN.WEIGHT_DECAY                  = 0
 cfg.TRAIN.GAUSSIAN.BETAS                         = (0., 0.999)
-cfg.TRAIN.GAUSSIAN.CROP_SIZE                     = (336, 336)
+cfg.TRAIN.GAUSSIAN.CROP_SIZE                     = (192, 192)
 cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_MODEL         = "vgg19"
 cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_LAYERS        = ["relu_3_1", "relu_4_1", "relu_5_1"]
 cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_WEIGHTS       = [0.125, 0.25, 1.0]
