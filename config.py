@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-04 10:25:33
+# @Last Modified at: 2024-03-04 16:15:36
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -90,7 +90,7 @@ cfg.TRAIN                                        = EasyDict()
 cfg.TRAIN.GAUSSIAN                               = EasyDict()
 cfg.TRAIN.GAUSSIAN.DATASET                       = "CITY_SAMPLE"
 cfg.TRAIN.GAUSSIAN.N_MIN_PIXELS                  = 64
-cfg.TRAIN.GAUSSIAN.N_MAX_POINTS                  = 8192
+cfg.TRAIN.GAUSSIAN.N_MAX_POINTS                  = 3072
 cfg.TRAIN.GAUSSIAN.BATCH_SIZE                    = 1
 cfg.TRAIN.GAUSSIAN.LR_GENERATOR                  = 1e-4
 cfg.TRAIN.GAUSSIAN.LR_DISCRIMINATOR              = 1e-5
@@ -105,6 +105,7 @@ cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_WEIGHTS       = [0.125, 0.25, 1.0]
 cfg.TRAIN.GAUSSIAN.N_EPOCHS                      = 500
 cfg.TRAIN.GAUSSIAN.L1_LOSS_FACTOR                = 10
 cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_FACTOR        = 10
+cfg.TRAIN.GAUSSIAN.GAN_LOSS_FACTOR               = .5
 
 #
 # Test

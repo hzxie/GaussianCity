@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-01-31 14:11:22
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-04 10:23:15
+# @Last Modified at: 2024-03-04 13:12:23
 # @Email:  root@haozhexie.com
 #
 # References:
@@ -326,9 +326,9 @@ class GaussianDiscriminator(torch.nn.Module):
         x.scatter_(1, onehot_idx, 1.0)
         return x
 
-    def _single_forward(self, images, seg_maps):
+    def forward(self, images, seg_maps, masks):
         # bottom-up pathway
-        feat11 = self.enc1(images)
+        feat11 = self.enc1(images * masks)
         feat12 = self.enc2(feat11)
         feat13 = self.enc3(feat12)
         feat14 = self.enc4(feat13)
@@ -341,10 +341,7 @@ class GaussianDiscriminator(torch.nn.Module):
         # final prediction layers
         feat32 = self.final2(feat22)
 
-        label_map = self.interpolator(seg_maps, size=feat32.size()[2:])
+        label_map = self.interpolator(seg_maps * masks, size=feat32.size()[2:])
         pred = self.output(feat32)  # N, num_labels + 1, H//4, W//4
-        return {"pred": pred, "label": label_map}
 
-    def forward(self, images, seg_maps, masks):
-        seg_maps = seg_maps * masks
-        return self._single_forward(images * masks, seg_maps)
+        return {"pred": pred, "label": label_map}

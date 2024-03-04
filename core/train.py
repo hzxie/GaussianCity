@@ -4,13 +4,14 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-04 10:39:30
+# @Last Modified at: 2024-03-04 16:15:16
 # @Email:  root@haozhexie.com
 
 import logging
 import os
 import time
 import torch
+import torch.nn.functional as F
 
 import extensions.diff_gaussian_rasterization as dgr
 import losses.gan
@@ -61,7 +62,9 @@ def train(cfg):
 
     # Set up networks
     gaussian_g = models.gaussian.GaussianGenerator(cfg, train_dataset.get_n_classes())
-    gaussian_d = models.gaussian.GaussianDiscriminator(cfg, train_dataset.get_n_classes())
+    gaussian_d = models.gaussian.GaussianDiscriminator(
+        cfg, train_dataset.get_n_classes()
+    )
     if torch.cuda.is_available():
         logging.info("Start running the DDP on rank %d." % local_rank)
         gaussian_g = torch.nn.parallel.DistributedDataParallel(
@@ -154,7 +157,7 @@ def train(cfg):
         batch_end_time = time.time()
         from tqdm import tqdm
 
-        for batch_idx, data in enumerate(tqdm(train_data_loader)):
+        for batch_idx, data in enumerate(train_data_loader):
             n_itr = (epoch_idx - 1) * n_batches + batch_idx
             data_time.update(time.time() - batch_end_time)
             # Warm up the discriminator
@@ -167,11 +170,13 @@ def train(cfg):
                 for pg in optimizer_d.param_groups:
                     pg["lr"] = lr
 
+            torch.cuda.empty_cache()
             # Move data to GPU
             pts = utils.helpers.var_or_cuda(data["pts"], gaussian_g.device)
             rgb = utils.helpers.var_or_cuda(data["rgb"], gaussian_g.device)
             seg = utils.helpers.var_or_cuda(data["seg"], gaussian_g.device)
             msk = utils.helpers.var_or_cuda(data["msk"], gaussian_g.device)
+            gan_loss_weights = F.interpolate(msk, scale_factor=0.25)
 
             # Split pts into attributes
             abs_xyz = pts[:, :, :3]
@@ -182,39 +187,116 @@ def train(cfg):
             scales = utils.helpers.get_point_scales(
                 scales, classes, train_dataset.get_special_z_scale_classes()
             )
-            onehots = utils.helpers.get_one_hot(
-                classes, train_dataset.get_n_classes()
-            )
+            onehots = utils.helpers.get_one_hot(classes, train_dataset.get_n_classes())
             z = utils.helpers.get_z(instances, cfg.NETWORK.GAUSSIAN.Z_DIM)
             # Make the number of points in the batch consistent
             n_pts = pts.size(1)
-            n_max_pts = torch.max(data["npt"])
             pts = torch.cat([rel_xyz, onehots, z], dim=2)
-            pts = utils.helpers.get_pad_tensor(pts, n_max_pts)
 
             # Discriminator Update Step
+            utils.helpers.requires_grad(gaussian_g, False)
+            utils.helpers.requires_grad(gaussian_d, True)
 
-            # Generator Update Step
-            try:
+            with torch.no_grad():
                 pt_rgbs = gaussian_g(pts)
                 gs_pts = utils.helpers.get_gaussian_points(
                     n_pts, abs_xyz, scales, pt_rgbs
                 )
                 fake_imgs = utils.helpers.get_gaussian_rasterization(
                     gs_pts, gr, data["cam_pos"], data["cam_quat"], data["crp"]
+                ).detach()
+
+            fake_labels = gaussian_d(fake_imgs, seg, msk)
+            real_labels = gaussian_d(rgb, seg, msk)
+            fake_loss = gan_loss(fake_labels, False, gan_loss_weights, dis_update=True)
+            real_loss = gan_loss(real_labels, True, gan_loss_weights, dis_update=True)
+            loss_d = fake_loss + real_loss
+            gaussian_d.zero_grad()
+            loss_d.backward()
+            optimizer_d.step()
+
+            # Generator Update Step
+            utils.helpers.requires_grad(gaussian_d, False)
+            utils.helpers.requires_grad(gaussian_g, True)
+
+            pt_rgbs = gaussian_g(pts)
+            gs_pts = utils.helpers.get_gaussian_points(n_pts, abs_xyz, scales, pt_rgbs)
+            fake_imgs = utils.helpers.get_gaussian_rasterization(
+                gs_pts, gr, data["cam_pos"], data["cam_quat"], data["crp"]
+            )
+            fake_labels = gaussian_d(fake_imgs, seg, msk)
+            _l1_loss = l1_loss(fake_imgs * msk, rgb * msk)
+            _perceptual_loss = perceptual_loss(fake_imgs * msk, rgb * msk)
+            _gan_loss = gan_loss(fake_labels, True, gan_loss_weights, dis_update=False)
+            loss_g = (
+                _l1_loss * cfg.TRAIN.GAUSSIAN.L1_LOSS_FACTOR
+                + _perceptual_loss * cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_FACTOR
+                + _gan_loss * cfg.TRAIN.GAUSSIAN.GAN_LOSS_FACTOR
+            )
+
+            gaussian_g.zero_grad()
+            loss_g.backward()
+            optimizer_g.step()
+            train_losses.update(
+                [
+                    _l1_loss.item(),
+                    _perceptual_loss.item(),
+                    _gan_loss.item(),
+                    fake_loss.item(),
+                    real_loss.item(),
+                    loss_g.item(),
+                    loss_d.item(),
+                ]
+            )
+
+            batch_time.update(time.time() - batch_end_time)
+            batch_end_time = time.time()
+            if utils.distributed.is_master():
+                tb_writer.add_scalars(
+                    {
+                        "Loss/Batch/L1": train_losses.val(0),
+                        "Loss/Batch/Perceptual": train_losses.val(1),
+                        "Loss/Batch/GAN": train_losses.val(2),
+                        "Loss/Batch/GANFake": train_losses.val(3),
+                        "Loss/Batch/GANReal": train_losses.val(4),
+                        "Loss/Batch/GenTotal": train_losses.val(5),
+                        "Loss/Batch/DisTotal": train_losses.val(6),
+                    },
+                    n_itr,
                 )
-                _l1_loss = l1_loss(fake_imgs * msk, rgb * msk)
-                _perceptual_loss = perceptual_loss(fake_imgs * msk, rgb * msk)
-                loss_g = (
-                    _l1_loss * cfg.TRAIN.GAUSSIAN.L1_LOSS_FACTOR
-                    + _perceptual_loss * cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_FACTOR
+                logging.info(
+                    "[Epoch %d/%d][Batch %d/%d] BatchTime = %.3f (s) DataTime = %.3f (s) Losses = %s"
+                    % (
+                        epoch_idx,
+                        cfg.TRAIN.GAUSSIAN.N_EPOCHS,
+                        batch_idx + 1,
+                        n_batches,
+                        batch_time.val(),
+                        data_time.val(),
+                        ["%.4f" % l for l in train_losses.val()],
+                    )
                 )
-                gaussian_g.zero_grad()
-                loss_g.backward()
-                optimizer_g.step()
-            except Exception as ex:
-                logging.warning("#Points: %d, Msg: %s" % (n_max_pts, ex))
-                torch.cuda.empty_cache()
-                continue
-            finally:
-                torch.cuda.empty_cache()
+
+        epoch_end_time = time.time()
+        if utils.distributed.is_master():
+            tb_writer.add_scalars(
+                {
+                    "Loss/Epoch/L1/Train": train_losses.avg(0),
+                    "Loss/Epoch/Perceptual/Train": train_losses.avg(1),
+                    "Loss/Epoch/GAN/Train": train_losses.avg(2),
+                    "Loss/Epoch/GANFake/Train": train_losses.avg(3),
+                    "Loss/Epoch/GANReal/Train": train_losses.avg(4),
+                    "Loss/Epoch/GenTotal/Train": train_losses.avg(5),
+                    "Loss/Epoch/DisTotal/Train": train_losses.avg(6),
+                },
+                epoch_idx,
+            )
+            logging.info(
+                "[Epoch %d/%d] EpochTime = %.3f (s) Losses = %s"
+                % (
+                    epoch_idx,
+                    cfg.TRAIN.GAUSSIAN.N_EPOCHS,
+                    epoch_end_time - epoch_start_time,
+                    ["%.4f" % l for l in train_losses.avg()],
+                )
+            )

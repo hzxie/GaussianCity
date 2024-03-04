@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-02 15:21:55
+# @Last Modified at: 2024-03-04 16:11:24
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -166,10 +166,12 @@ def get_camera_look_at(cam_position, cam_quaternion, step=1000):
     return cam_position + mat3[:3, 0] * step
 
 
-def get_pad_tensor(tensor, target_size):
-    b, n, c = tensor.size()
-    pad = torch.zeros(b, target_size - n, c, dtype=tensor.dtype, device=tensor.device)
-    return torch.cat((tensor, pad), dim=1)
+def onehot_to_mask(onehot, ignored_classes=[]):
+    mask = torch.argmax(onehot, dim=1)
+    for ic in ignored_classes:
+        mask[mask >= ic] += 1
+
+    return mask
 
 
 def get_point_scales(scales, classes, special_z_scale_classes=[]):
@@ -270,3 +272,16 @@ def dump_ptcloud_ply(ply_fpath, xyz, rgb, attrs={}):
             )
         ]
     ).write(ply_fpath)
+
+
+def tensor_to_image(tensor, mode):
+    # assert mode in ["SegMap", "RGB"]
+    tensor = tensor.cpu().numpy()
+    if mode == "SegMap":
+        return get_seg_map(tensor.squeeze()).convert("RGB")
+    elif mode == "RGB":
+        return tensor.squeeze().transpose((1, 2, 0)) / 2 + 0.5
+    elif mode == "Mask":
+        return tensor.transpose((1, 2, 0)).squeeze()
+    else:
+        raise Exception("Unknown mode: %s" % mode)

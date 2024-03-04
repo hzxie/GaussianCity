@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 14:18:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-04 10:32:36
+# @Last Modified at: 2024-03-04 15:29:12
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -79,28 +79,38 @@ class Crop(object):
     def _get_img_patch(self, img, offset_x, offset_y):
         return img[offset_y : offset_y + self.height, offset_x : offset_x + self.width]
 
-    def __call__(self, data):
-        N_MAX_TRY_TIMES = 500
+    def _get_crop_position(self, data, width, height):
+        N_MAX_TRY_TIMES = 100
         img = data[self.objects[0]]
         h, w = img.shape[0], img.shape[1]
         # Check the cropped patch contains enough informative pixels for training
         for _ in range(N_MAX_TRY_TIMES):
-            offset_x = self._get_offset(w, self.width)
-            offset_y = self._get_offset(h, self.height)
+            offset_x = self._get_offset(w, width)
+            offset_y = self._get_offset(h, height)
             mask = self._get_img_patch(data["msk"], offset_x, offset_y)
             visible_pts = self._get_img_patch(data["vpm"], offset_x, offset_y)
 
             n_pixels = np.count_nonzero(mask)
             if n_pixels >= self.n_min_pixels:
-                if self.n_max_points <= 0:
-                    assert False, "Never reach here"
-                    break
                 n_points = len(np.unique(visible_pts))
                 if n_points <= self.n_max_points:
                     break
+        else:
+            offset_x, offset_y = None, None
+
+        return offset_x, offset_y, mask, visible_pts
+
+    def __call__(self, data):
+        width, height = self.width, self.height
+        offset_x, offset_y = None, None
+        while offset_x is None or offset_y is None:
+            offset_x, offset_y, mask, visible_pts = self._get_crop_position(
+                data, width, height
+            )
+            width /= 2
+            height /= 2
 
         # Crop all data fields simultaneously
-        data["npt"] = n_points
         data["crp"] = {
             "x": offset_x,
             "y": offset_y,
@@ -114,7 +124,7 @@ class Crop(object):
             elif k == "vpm":
                 # Prevent duplicated computation
                 data[k] = visible_pts
-            elif k in self.objects:
+            if k in self.objects:
                 data[k] = self._get_img_patch(v, offset_x, offset_y)
 
         return data
@@ -127,6 +137,7 @@ class RemoveUnseenPoints(object):
     def __call__(self, data):
         visible_pts = np.unique(data["vpm"])
         data["pts"] = data["pts"][visible_pts]
+        data["pts"] = data["pts"]
         return data
 
 
