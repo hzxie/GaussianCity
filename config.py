@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-04 16:15:36
+# @Last Modified at: 2024-03-04 17:01:04
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -25,6 +25,7 @@ cfg.DATASETS.CITY_SAMPLE.N_REPEAT                = 1
 cfg.DATASETS.CITY_SAMPLE.N_CLASSES               = 9
 cfg.DATASETS.CITY_SAMPLE.N_CITIES                = 1
 cfg.DATASETS.CITY_SAMPLE.N_VIEWS                 = 3000
+cfg.DATASETS.CITY_SAMPLE.N_TEST_VIEWS            = 8
 cfg.DATASETS.CITY_SAMPLE.CITY_STYLES             = ["Day", "Night"]
 ## The following parameters should be the same as scripts/dataset_generator.py
 cfg.DATASETS.CITY_SAMPLE.BLDG_RANGE              = [100, 5000]
@@ -106,6 +107,7 @@ cfg.TRAIN.GAUSSIAN.N_EPOCHS                      = 500
 cfg.TRAIN.GAUSSIAN.L1_LOSS_FACTOR                = 10
 cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_FACTOR        = 10
 cfg.TRAIN.GAUSSIAN.GAN_LOSS_FACTOR               = .5
+cfg.TRAIN.GAUSSIAN.CKPT_SAVE_FREQ                = 25
 
 #
 # Test

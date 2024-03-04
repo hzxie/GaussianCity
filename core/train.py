@@ -4,15 +4,17 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-04 16:15:16
+# @Last Modified at: 2024-03-04 17:01:33
 # @Email:  root@haozhexie.com
 
 import logging
 import os
+import shutil
 import time
 import torch
 import torch.nn.functional as F
 
+import core.test
 import extensions.diff_gaussian_rasterization as dgr
 import losses.gan
 import losses.perceptual
@@ -155,7 +157,6 @@ def train(cfg):
         gaussian_g.train()
         gaussian_d.train()
         batch_end_time = time.time()
-        from tqdm import tqdm
 
         for batch_idx, data in enumerate(train_data_loader):
             n_itr = (epoch_idx - 1) * n_batches + batch_idx
@@ -300,3 +301,41 @@ def train(cfg):
                     ["%.4f" % l for l in train_losses.avg()],
                 )
             )
+
+        # Evaluate the current model
+        test_losses, key_frames = core.test(
+            cfg,
+            val_data_loader,
+            gaussian_g,
+        )
+        if utils.distributed.is_master():
+            tb_writer.add_scalars(
+                {
+                    "Loss/Epoch/L1/Test": test_losses.avg(0),
+                },
+                epoch_idx,
+            )
+            tb_writer.add_images(key_frames, epoch_idx)
+            # Save ckeckpoints
+            logging.info("Saved checkpoint to ckpt-last.pth ...")
+            ckpt = {
+                "cfg": cfg,
+                "epoch_index": epoch_idx,
+                "gaussian_g": gaussian_g.state_dict(),
+                "gaussian_d": gaussian_d.state_dict(),
+            }
+
+            torch.save(
+                ckpt,
+                os.path.join(cfg.DIR.CHECKPOINTS, "ckpt-last.pth"),
+            )
+            if epoch_idx % cfg.TRAIN.GAUSSIAN.CKPT_SAVE_FREQ == 0:
+                shutil.copy(
+                    os.path.join(cfg.DIR.CHECKPOINTS, "ckpt-last.pth"),
+                    os.path.join(
+                        cfg.DIR.CHECKPOINTS, "ckpt-epoch-%03d.pth" % epoch_idx
+                    ),
+                )
+
+    if utils.distributed.is_master():
+        tb_writer.close()

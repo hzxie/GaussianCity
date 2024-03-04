@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 14:18:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-04 15:29:12
+# @Last Modified at: 2024-03-04 16:41:05
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -92,6 +92,8 @@ class Crop(object):
 
             n_pixels = np.count_nonzero(mask)
             if n_pixels >= self.n_min_pixels:
+                if self.n_max_points == 0:
+                    break
                 n_points = len(np.unique(visible_pts))
                 if n_points <= self.n_max_points:
                     break
