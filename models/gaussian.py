@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-01-31 14:11:22
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-04 13:12:23
+# @Last Modified at: 2024-03-07 16:14:15
 # @Email:  root@haozhexie.com
 #
 # References:
@@ -130,23 +130,11 @@ class GaussianGenerator(torch.nn.Module):
         self.l_out = torch.nn.Linear(cfg.NETWORK.GAUSSIAN.FEATURE_DIM, 3)
 
     def forward(self, points):
-        masks = None
-        # Create attention masks for padding points
-        # n_pts = points.size(1)
-        # masks = torch.zeros(
-        #     self.cfg.NETWORK.GAUSSIAN.N_ATTENTION_HEADS,
-        #     n_pts,
-        #     n_pts,
-        #     dtype=torch.float32,
-        #     device=points.device,
-        # )
-        # masks[:, :n_act_pts, :n_act_pts] = 1
-
         f_xyz = self.l_xyz(points[:, :, :3])
         f_cls = self.l_cls(points[:, :, 3 : 3 + self.n_classes])
         f_z = self.l_z(points[:, :, -self.cfg.NETWORK.GAUSSIAN.Z_DIM :])
         f = self.l_f(torch.cat([f_xyz, f_cls, f_z], dim=2))
-        f = self.te(f, masks)
+        f = self.te(f)
         return self.l_out(f)
 
 

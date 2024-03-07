@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-04 17:01:33
+# @Last Modified at: 2024-03-07 16:13:39
 # @Email:  root@haozhexie.com
 
 import logging
@@ -31,7 +31,7 @@ def train(cfg):
     local_rank = utils.distributed.get_rank()
     # Set up data loader
     train_dataset = utils.datasets.get_dataset(cfg, cfg.TRAIN.GAUSSIAN.DATASET, "train")
-    val_dataset = utils.datasets.get_dataset(cfg, cfg.TRAIN.GAUSSIAN.DATASET, "val")
+    val_dataset = utils.datasets.get_dataset(cfg, cfg.TEST.GAUSSIAN.DATASET, "val")
     train_sampler = None
     val_sampler = None
     if torch.cuda.is_available():

@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:58:23
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-04 16:53:39
+# @Last Modified at: 2024-03-07 16:13:19
 # @Email:  root@haozhexie.com
 
 import logging
@@ -21,7 +21,7 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
     torch.backends.cudnn.benchmark = True
     if test_data_loader is None:
         test_data_loader = torch.utils.data.DataLoader(
-            dataset=utils.datasets.get_dataset(cfg, cfg.TEST.GANCRAFT.DATASET, "test"),
+            dataset=utils.datasets.get_dataset(cfg, cfg.TEST.GAUSSIAN.DATASET, "test"),
             batch_size=1,
             num_workers=cfg.CONST.N_WORKERS,
             collate_fn=utils.datasets.collate_fn,

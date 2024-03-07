@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-04 17:01:04
+# @Last Modified at: 2024-03-07 16:20:06
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -114,5 +114,6 @@ cfg.TRAIN.GAUSSIAN.CKPT_SAVE_FREQ                = 25
 #
 cfg.TEST                                         = EasyDict()
 cfg.TEST.GAUSSIAN                                = EasyDict()
+cfg.TEST.GAUSSIAN.DATASET                        = "CITY_SAMPLE"
 cfg.TEST.GAUSSIAN.CROP_SIZE                      = (960, 540)
 # fmt: on
