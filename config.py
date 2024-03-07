@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-07 16:36:13
+# @Last Modified at: 2024-03-07 18:03:53
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -93,21 +93,26 @@ cfg.TRAIN.GAUSSIAN.DATASET                       = "CITY_SAMPLE"
 cfg.TRAIN.GAUSSIAN.N_MIN_PIXELS                  = 64
 cfg.TRAIN.GAUSSIAN.N_MAX_POINTS                  = 3072
 cfg.TRAIN.GAUSSIAN.BATCH_SIZE                    = 1
-cfg.TRAIN.GAUSSIAN.LR_GENERATOR                  = 1e-4
-cfg.TRAIN.GAUSSIAN.LR_DISCRIMINATOR              = 1e-5
-cfg.TRAIN.GAUSSIAN.DISCRIMINATOR_N_WARMUP_ITERS  = 100000
-cfg.TRAIN.GAUSSIAN.EPS                           = 1e-7
+cfg.TRAIN.GAUSSIAN.EPS                           = 1e-8
 cfg.TRAIN.GAUSSIAN.WEIGHT_DECAY                  = 0
-cfg.TRAIN.GAUSSIAN.BETAS                         = (0., 0.999)
+cfg.TRAIN.GAUSSIAN.BETAS                         = (0.9, 0.999)
 cfg.TRAIN.GAUSSIAN.CROP_SIZE                     = (192, 192)
 cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_MODEL         = "vgg19"
 cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_LAYERS        = ["relu_3_1", "relu_4_1", "relu_5_1"]
 cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_WEIGHTS       = [0.125, 0.25, 1.0]
-cfg.TRAIN.GAUSSIAN.N_EPOCHS                      = 500
+cfg.TRAIN.GAUSSIAN.N_EPOCHS                      = 10
 cfg.TRAIN.GAUSSIAN.L1_LOSS_FACTOR                = 10
 cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_FACTOR        = 10
 cfg.TRAIN.GAUSSIAN.GAN_LOSS_FACTOR               = .5
 cfg.TRAIN.GAUSSIAN.CKPT_SAVE_FREQ                = 25
+cfg.TRAIN.GAUSSIAN.GENERATOR                     = EasyDict()
+cfg.TRAIN.GAUSSIAN.GENERATOR.LR                  = 1e-2
+cfg.TRAIN.GAUSSIAN.DISCRIMINATOR                 = EasyDict()
+cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED         = False
+cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.LR              = 1e-5
+cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.N_WARMUP_ITERS  = 100000
+
+
 
 #
 # Test

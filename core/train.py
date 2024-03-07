@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-07 16:13:39
+# @Last Modified at: 2024-03-07 18:40:50
 # @Email:  root@haozhexie.com
 
 import logging
@@ -64,41 +64,45 @@ def train(cfg):
 
     # Set up networks
     gaussian_g = models.gaussian.GaussianGenerator(cfg, train_dataset.get_n_classes())
-    gaussian_d = models.gaussian.GaussianDiscriminator(
-        cfg, train_dataset.get_n_classes()
-    )
+    if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
+        gaussian_d = models.gaussian.GaussianDiscriminator(
+            cfg, train_dataset.get_n_classes()
+        )
     if torch.cuda.is_available():
         logging.info("Start running the DDP on rank %d." % local_rank)
         gaussian_g = torch.nn.parallel.DistributedDataParallel(
             gaussian_g.to(local_rank),
             device_ids=[local_rank],
         )
-        gaussian_d = torch.nn.parallel.DistributedDataParallel(
-            gaussian_d.to(local_rank),
-            device_ids=[local_rank],
-        )
+        if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
+            gaussian_d = torch.nn.parallel.DistributedDataParallel(
+                gaussian_d.to(local_rank),
+                device_ids=[local_rank],
+            )
     else:
         gaussian_g.device = torch.device("cpu")
-        gaussian_d.device = torch.device("cpu")
+        if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
+            gaussian_d.device = torch.device("cpu")
 
     # Set up optimizers
     optimizer_g = torch.optim.Adam(
         filter(lambda p: p.requires_grad, gaussian_g.parameters()),
-        lr=cfg.TRAIN.GAUSSIAN.LR_GENERATOR,
+        lr=cfg.TRAIN.GAUSSIAN.GENERATOR.LR,
         eps=cfg.TRAIN.GAUSSIAN.EPS,
         weight_decay=cfg.TRAIN.GAUSSIAN.WEIGHT_DECAY,
         betas=cfg.TRAIN.GAUSSIAN.BETAS,
     )
-    optimizer_d = torch.optim.Adam(
-        filter(lambda p: p.requires_grad, gaussian_d.parameters()),
-        lr=cfg.TRAIN.GAUSSIAN.LR_DISCRIMINATOR,
-        eps=cfg.TRAIN.GAUSSIAN.EPS,
-        weight_decay=cfg.TRAIN.GAUSSIAN.WEIGHT_DECAY,
-        betas=cfg.TRAIN.GAUSSIAN.BETAS,
-    )
+    if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
+        optimizer_d = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, gaussian_d.parameters()),
+            lr=cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.LR,
+            eps=cfg.TRAIN.GAUSSIAN.EPS,
+            weight_decay=cfg.TRAIN.GAUSSIAN.WEIGHT_DECAY,
+            betas=cfg.TRAIN.GAUSSIAN.BETAS,
+        )
 
     # Set up loss functions
-    l1_loss = torch.nn.L1Loss()
+    l1_loss = torch.nn.MSELoss()
     gan_loss = losses.gan.GANLoss()
     perceptual_loss = losses.perceptual.PerceptualLoss(
         cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_MODEL,
@@ -111,10 +115,11 @@ def train(cfg):
     init_epoch = 0
     if "CKPT" in cfg.CONST:
         logging.info("Recovering from %s ..." % (cfg.CONST.CKPT))
+        init_epoch = checkpoint["epoch_index"]
         checkpoint = torch.load(cfg.CONST.CKPT, map_location=gaussian_g.device)
         gaussian_g.load_state_dict(checkpoint["gaussian_g"])
-        gaussian_d.load_state_dict(checkpoint["gaussian_d"])
-        init_epoch = checkpoint["epoch_index"]
+        if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
+            gaussian_d.load_state_dict(checkpoint["gaussian_d"])
         logging.info("Recover completed. Current epoch = #%d" % (init_epoch,))
 
     # Set up folders for logs, snapshot and checkpoints
@@ -155,21 +160,23 @@ def train(cfg):
 
         # Switch models to train mode
         gaussian_g.train()
-        gaussian_d.train()
-        batch_end_time = time.time()
+        if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
+            gaussian_d.train()
 
+        batch_end_time = time.time()
         for batch_idx, data in enumerate(train_data_loader):
             n_itr = (epoch_idx - 1) * n_batches + batch_idx
             data_time.update(time.time() - batch_end_time)
             # Warm up the discriminator
-            if n_itr <= cfg.TRAIN.GAUSSIAN.DISCRIMINATOR_N_WARMUP_ITERS:
-                lr = (
-                    cfg.TRAIN.GAUSSIAN.LR_DISCRIMINATOR
-                    * n_itr
-                    / cfg.TRAIN.GAUSSIAN.DISCRIMINATOR_N_WARMUP_ITERS
-                )
-                for pg in optimizer_d.param_groups:
-                    pg["lr"] = lr
+            if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
+                if n_itr <= cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.N_WARMUP_ITERS:
+                    lr = (
+                        cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.LR
+                        * n_itr
+                        / cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.N_WARMUP_ITERS
+                    )
+                    for pg in optimizer_d.param_groups:
+                        pg["lr"] = lr
 
             torch.cuda.empty_cache()
             # Move data to GPU
@@ -195,40 +202,54 @@ def train(cfg):
             pts = torch.cat([rel_xyz, onehots, z], dim=2)
 
             # Discriminator Update Step
-            utils.helpers.requires_grad(gaussian_g, False)
-            utils.helpers.requires_grad(gaussian_d, True)
+            if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
+                utils.helpers.requires_grad(gaussian_g, False)
+                utils.helpers.requires_grad(gaussian_d, True)
 
-            with torch.no_grad():
-                pt_rgbs = gaussian_g(pts)
-                gs_pts = utils.helpers.get_gaussian_points(
-                    n_pts, abs_xyz, scales, pt_rgbs
-                )
-                fake_imgs = utils.helpers.get_gaussian_rasterization(
-                    gs_pts, gr, data["cam_pos"], data["cam_quat"], data["crp"]
-                ).detach()
+                with torch.no_grad():
+                    pt_rgbs = gaussian_g(pts)
+                    gs_pts = utils.helpers.get_gaussian_points(
+                        n_pts, abs_xyz, scales, pt_rgbs
+                    )
+                    fake_imgs = utils.helpers.get_gaussian_rasterization(
+                        gs_pts,
+                        gr,
+                        data["cam_pos"],
+                        data["cam_quat"],
+                        data["crp"] if "crp" in data else None,
+                    ).detach()
 
-            fake_labels = gaussian_d(fake_imgs, seg, msk)
-            real_labels = gaussian_d(rgb, seg, msk)
-            fake_loss = gan_loss(fake_labels, False, gan_loss_weights, dis_update=True)
-            real_loss = gan_loss(real_labels, True, gan_loss_weights, dis_update=True)
-            loss_d = fake_loss + real_loss
-            gaussian_d.zero_grad()
-            loss_d.backward()
-            optimizer_d.step()
+                fake_labels = gaussian_d(fake_imgs, seg, msk)
+                real_labels = gaussian_d(rgb, seg, msk)
+                fake_loss = gan_loss(fake_labels, False, gan_loss_weights, dis_update=True)
+                real_loss = gan_loss(real_labels, True, gan_loss_weights, dis_update=True)
+                loss_d = fake_loss + real_loss
+                gaussian_d.zero_grad()
+                loss_d.backward()
+                optimizer_d.step()
+            else:
+                fake_loss = torch.tensor(0)
+                real_loss = torch.tensor(0)
+                loss_d = torch.tensor(0)
 
-            # Generator Update Step
-            utils.helpers.requires_grad(gaussian_d, False)
-            utils.helpers.requires_grad(gaussian_g, True)
+            # # Generator Update Step
+            if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
+                utils.helpers.requires_grad(gaussian_d, False)
+                utils.helpers.requires_grad(gaussian_g, True)
 
             pt_rgbs = gaussian_g(pts)
             gs_pts = utils.helpers.get_gaussian_points(n_pts, abs_xyz, scales, pt_rgbs)
             fake_imgs = utils.helpers.get_gaussian_rasterization(
                 gs_pts, gr, data["cam_pos"], data["cam_quat"], data["crp"]
             )
-            fake_labels = gaussian_d(fake_imgs, seg, msk)
+            if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
+                fake_labels = gaussian_d(fake_imgs, seg, msk)
+                _gan_loss = gan_loss(fake_labels, True, gan_loss_weights, dis_update=False)
+            else:
+                _gan_loss = torch.tensor(0)
+
             _l1_loss = l1_loss(fake_imgs * msk, rgb * msk)
             _perceptual_loss = perceptual_loss(fake_imgs * msk, rgb * msk)
-            _gan_loss = gan_loss(fake_labels, True, gan_loss_weights, dis_update=False)
             loss_g = (
                 _l1_loss * cfg.TRAIN.GAUSSIAN.L1_LOSS_FACTOR
                 + _perceptual_loss * cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_FACTOR
@@ -322,8 +343,9 @@ def train(cfg):
                 "cfg": cfg,
                 "epoch_index": epoch_idx,
                 "gaussian_g": gaussian_g.state_dict(),
-                "gaussian_d": gaussian_d.state_dict(),
             }
+            if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
+                ckpt["gaussian_d"] = gaussian_d.state_dict()
 
             torch.save(
                 ckpt,
