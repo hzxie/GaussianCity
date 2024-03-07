@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-07 16:20:06
+# @Last Modified at: 2024-03-07 16:36:13
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -21,12 +21,12 @@ cfg.DATASETS.CITY_SAMPLE                         = EasyDict()
 cfg.DATASETS.CITY_SAMPLE.DIR                     = "./data/city-sample"
 cfg.DATASETS.CITY_SAMPLE.PIN_MEMORY              = ["Rt", "centers"]
 cfg.DATASETS.CITY_SAMPLE.CAM_K                   = [2828.2831640142235, 0, 960, 0, 2828.2831640142235, 540, 0, 0, 1]
-cfg.DATASETS.CITY_SAMPLE.N_REPEAT                = 1
 cfg.DATASETS.CITY_SAMPLE.N_CLASSES               = 9
-cfg.DATASETS.CITY_SAMPLE.N_CITIES                = 1
-cfg.DATASETS.CITY_SAMPLE.N_VIEWS                 = 3000
-cfg.DATASETS.CITY_SAMPLE.N_TEST_VIEWS            = 8
-cfg.DATASETS.CITY_SAMPLE.CITY_STYLES             = ["Day", "Night"]
+## Configs for Debug
+cfg.DATASETS.CITY_SAMPLE.N_REPEAT                = 100          # 1
+cfg.DATASETS.CITY_SAMPLE.N_CITIES                = 1            # 10
+cfg.DATASETS.CITY_SAMPLE.N_VIEWS                 = 1            # 3000
+cfg.DATASETS.CITY_SAMPLE.CITY_STYLES             = ["Day"]      # ["Day", "Night"]
 ## The following parameters should be the same as scripts/dataset_generator.py
 cfg.DATASETS.CITY_SAMPLE.BLDG_RANGE              = [100, 5000]
 cfg.DATASETS.CITY_SAMPLE.BLDG_FACADE_CLSID       = 7
@@ -80,7 +80,7 @@ cfg.NETWORK.GAUSSIAN                             = EasyDict()
 cfg.NETWORK.GAUSSIAN.USE_RGB_ONLY                = True
 cfg.NETWORK.GAUSSIAN.Z_DIM                       = 256
 cfg.NETWORK.GAUSSIAN.FEATURE_DIM                 = 512
-cfg.NETWORK.GAUSSIAN.N_ATTENTION_HEADS           = 8
+cfg.NETWORK.GAUSSIAN.N_ATTENTION_HEADS           = 1
 cfg.NETWORK.GAUSSIAN.N_TRANSFORMER_LAYERS        = 128
 cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE          = 128
 
@@ -115,5 +115,6 @@ cfg.TRAIN.GAUSSIAN.CKPT_SAVE_FREQ                = 25
 cfg.TEST                                         = EasyDict()
 cfg.TEST.GAUSSIAN                                = EasyDict()
 cfg.TEST.GAUSSIAN.DATASET                        = "CITY_SAMPLE"
+cfg.TEST.GAUSSIAN.N_SAMPLES                      = 3
 cfg.TEST.GAUSSIAN.CROP_SIZE                      = (960, 540)
 # fmt: on

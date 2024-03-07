@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:58:23
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-07 16:13:19
+# @Last Modified at: 2024-03-07 16:37:00
 # @Email:  root@haozhexie.com
 
 import logging
@@ -15,6 +15,8 @@ import models.gaussian
 import utils.average_meter
 import utils.datasets
 import utils.helpers
+
+from tqdm import tqdm
 
 
 def test(cfg, test_data_loader=None, gaussian_g=None):
@@ -57,7 +59,7 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
     n_samples = len(test_data_loader)
     test_losses = utils.average_meter.AverageMeter(["L1Loss"])
     key_frames = {}
-    for idx, data in enumerate(test_data_loader):
+    for idx, data in enumerate(tqdm(test_data_loader)):
         with torch.no_grad():
             pts = utils.helpers.var_or_cuda(data["pts"], gaussian_g.device)
             rgb = utils.helpers.var_or_cuda(data["rgb"], gaussian_g.device)
@@ -83,17 +85,22 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
             pt_rgbs = gaussian_g(pts)
             gs_pts = utils.helpers.get_gaussian_points(n_pts, abs_xyz, scales, pt_rgbs)
             fake_imgs = utils.helpers.get_gaussian_rasterization(
-                gs_pts, gr, data["cam_pos"], data["cam_quat"], data["crp"]
+                gs_pts,
+                gr,
+                data["cam_pos"],
+                data["cam_quat"],
+                data["crp"] if "crp" in data else None,
             )
             loss = l1_loss(fake_imgs, rgb)
             test_losses.update([loss.item()])
 
-            if utils.distributed.is_master():
-                if idx < 3:
-                    key_frames["Image/%04d" % idx] = utils.helpers.tensor_to_image(
-                        torch.cat([fake_imgs, rgb], dim=3), "RGB"
-                    )
+            if idx >= cfg.TEST.GAUSSIAN.N_SAMPLES:
+                 break
 
+            if utils.distributed.is_master():
+                key_frames["Image/%04d" % idx] = utils.helpers.tensor_to_image(
+                    torch.cat([fake_imgs, rgb], dim=3), "RGB"
+                )
                 logging.info(
                     "Test[%d/%d] Losses = %s"
                     % (idx + 1, n_samples, ["%.4f" % l for l in test_losses.val()])

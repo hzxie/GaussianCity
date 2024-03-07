@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-04 16:55:19
+# @Last Modified at: 2024-03-07 16:37:58
 # @Email:  root@haozhexie.com
 
 import copy
@@ -185,7 +185,7 @@ class CitySampleDataset(torch.utils.data.Dataset):
         return (
             files
             if split == "train"
-            else files[-cfg.DATASETS.CITY_SAMPLE.N_TEST_VIEWS :]
+            else files[-16:]
         )
 
     def _get_data_transforms(self, cfg, split):
