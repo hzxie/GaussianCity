@@ -95,7 +95,7 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
             test_losses.update([loss.item()])
 
             if idx >= cfg.TEST.GAUSSIAN.N_SAMPLES:
-                 break
+                break
 
             if utils.distributed.is_master():
                 key_frames["Image/%04d" % idx] = utils.helpers.tensor_to_image(

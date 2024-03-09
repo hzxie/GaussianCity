@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-07 18:40:50
+# @Last Modified at: 2024-03-09 20:09:37
 # @Email:  root@haozhexie.com
 
 import logging
@@ -102,7 +102,7 @@ def train(cfg):
         )
 
     # Set up loss functions
-    l1_loss = torch.nn.MSELoss()
+    l1_loss = torch.nn.L1Loss()
     gan_loss = losses.gan.GANLoss()
     perceptual_loss = losses.perceptual.PerceptualLoss(
         cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_MODEL,
@@ -183,6 +183,13 @@ def train(cfg):
             pts = utils.helpers.var_or_cuda(data["pts"], gaussian_g.device)
             rgb = utils.helpers.var_or_cuda(data["rgb"], gaussian_g.device)
             seg = utils.helpers.var_or_cuda(data["seg"], gaussian_g.device)
+            proj_hf = utils.helpers.var_or_cuda(data["proj/hf"], gaussian_g.device)
+            proj_seg = utils.helpers.var_or_cuda(data["proj/seg"], gaussian_g.device)
+            # tlp: Top-left pixel coordinates
+            proj_tlp = utils.helpers.var_or_cuda(data["proj/tlp"], gaussian_g.device)
+            proj_aff_mat = utils.helpers.var_or_cuda(
+                data["proj/affmat"], gaussian_g.device
+            )
             msk = utils.helpers.var_or_cuda(data["msk"], gaussian_g.device)
             gan_loss_weights = F.interpolate(msk, scale_factor=0.25)
 
@@ -197,6 +204,15 @@ def train(cfg):
             )
             onehots = utils.helpers.get_one_hot(classes, train_dataset.get_n_classes())
             z = utils.helpers.get_z(instances, cfg.NETWORK.GAUSSIAN.Z_DIM)
+            # Points positions at projection maps
+            abs_xy1 = torch.cat(
+                [
+                    abs_xyz[..., :2] - proj_tlp.unsqueeze(dim=1),
+                    torch.ones(1, 33925, 1, device=gaussian_g.device),
+                ],
+                dim=-1,
+            )
+            abs_xy = torch.bmm(proj_aff_mat, abs_xy1.permute(0, 2, 1)).permute(0, 2, 1)
             # Make the number of points in the batch consistent
             n_pts = pts.size(1)
             pts = torch.cat([rel_xyz, onehots, z], dim=2)
@@ -221,8 +237,12 @@ def train(cfg):
 
                 fake_labels = gaussian_d(fake_imgs, seg, msk)
                 real_labels = gaussian_d(rgb, seg, msk)
-                fake_loss = gan_loss(fake_labels, False, gan_loss_weights, dis_update=True)
-                real_loss = gan_loss(real_labels, True, gan_loss_weights, dis_update=True)
+                fake_loss = gan_loss(
+                    fake_labels, False, gan_loss_weights, dis_update=True
+                )
+                real_loss = gan_loss(
+                    real_labels, True, gan_loss_weights, dis_update=True
+                )
                 loss_d = fake_loss + real_loss
                 gaussian_d.zero_grad()
                 loss_d.backward()
@@ -232,7 +252,7 @@ def train(cfg):
                 real_loss = torch.tensor(0)
                 loss_d = torch.tensor(0)
 
-            # # Generator Update Step
+            # Generator Update Step
             if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
                 utils.helpers.requires_grad(gaussian_d, False)
                 utils.helpers.requires_grad(gaussian_g, True)
@@ -244,7 +264,9 @@ def train(cfg):
             )
             if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
                 fake_labels = gaussian_d(fake_imgs, seg, msk)
-                _gan_loss = gan_loss(fake_labels, True, gan_loss_weights, dis_update=False)
+                _gan_loss = gan_loss(
+                    fake_labels, True, gan_loss_weights, dis_update=False
+                )
             else:
                 _gan_loss = torch.tensor(0)
 

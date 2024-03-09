@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-07 18:03:53
+# @Last Modified at: 2024-03-09 16:30:35
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -19,7 +19,7 @@ cfg                                             = __C
 cfg.DATASETS                                     = EasyDict()
 cfg.DATASETS.CITY_SAMPLE                         = EasyDict()
 cfg.DATASETS.CITY_SAMPLE.DIR                     = "./data/city-sample"
-cfg.DATASETS.CITY_SAMPLE.PIN_MEMORY              = ["Rt", "centers"]
+cfg.DATASETS.CITY_SAMPLE.PIN_MEMORY              = ["Rt", "centers", "proj/hf", "proj/seg"]
 cfg.DATASETS.CITY_SAMPLE.CAM_K                   = [2828.2831640142235, 0, 960, 0, 2828.2831640142235, 540, 0, 0, 1]
 cfg.DATASETS.CITY_SAMPLE.N_CLASSES               = 9
 ## Configs for Debug
@@ -96,7 +96,8 @@ cfg.TRAIN.GAUSSIAN.BATCH_SIZE                    = 1
 cfg.TRAIN.GAUSSIAN.EPS                           = 1e-8
 cfg.TRAIN.GAUSSIAN.WEIGHT_DECAY                  = 0
 cfg.TRAIN.GAUSSIAN.BETAS                         = (0.9, 0.999)
-cfg.TRAIN.GAUSSIAN.CROP_SIZE                     = (192, 192)
+cfg.TRAIN.GAUSSIAN.IMG_CROP_SIZE                 = (960, 540)
+cfg.TRAIN.GAUSSIAN.PROJ_CROP_SIZE                = (4096, 4096)
 cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_MODEL         = "vgg19"
 cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_LAYERS        = ["relu_3_1", "relu_4_1", "relu_5_1"]
 cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_WEIGHTS       = [0.125, 0.25, 1.0]
@@ -121,5 +122,6 @@ cfg.TEST                                         = EasyDict()
 cfg.TEST.GAUSSIAN                                = EasyDict()
 cfg.TEST.GAUSSIAN.DATASET                        = "CITY_SAMPLE"
 cfg.TEST.GAUSSIAN.N_SAMPLES                      = 3
-cfg.TEST.GAUSSIAN.CROP_SIZE                      = (960, 540)
+cfg.TEST.GAUSSIAN.IMG_CROP_SIZE                  = (960, 540)
+cfg.TEST.GAUSSIAN.PROJ_CROP_SIZE                 = (4096, 4096)
 # fmt: on

@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-02 14:23:27
+# @Last Modified at: 2024-03-08 10:19:42
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -632,6 +632,7 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             ) as fp:
                 pickle.dump(
                     {
+                        "vfc": local_cords,
                         "vpm": vp_map,
                         "msk": _get_seg_map_from_ins_map(ins_map) == seg_map,
                         "pts": points,

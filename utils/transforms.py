@@ -4,9 +4,10 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 14:18:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-04 17:03:06
+# @Last Modified at: 2024-03-09 19:57:09
 # @Email:  root@haozhexie.com
 
+import cv2
 import numpy as np
 import random
 import torch
@@ -41,10 +42,10 @@ class ToTensor(object):
     def __call__(self, data):
         for k, v in data.items():
             if k in self.objects:
-                if k in ["msk"]:
+                if k in ["msk", "proj/hf"]:
                     # H, W -> C, H, W
                     v = v[None, ...]
-                elif k in ["rgb", "seg"]:
+                elif k in ["rgb", "seg", "proj/seg"]:
                     # H, W, C -> C, H, W
                     v = v.transpose((2, 0, 1))
 
@@ -53,7 +54,93 @@ class ToTensor(object):
         return data
 
 
-class Crop(object):
+class InstanceToClass(object):
+    def __init__(self, parameters, objects):
+        self.map = parameters["map"]
+        self.objects = objects
+
+    def _instance_to_class(self, mask):
+        for m in self.map:
+            src, dst = m["src"], m["dst"]
+            mask[np.where((mask >= src[0]) & (mask < src[1]))] = dst
+
+        return mask
+
+    def __call__(self, data):
+        for k, v in data.items():
+            if k in self.objects:
+                data[k] = self._instance_to_class(v)
+
+        return data
+
+
+class CropAndRotate(object):
+    def __init__(self, parameters, objects):
+        self.height = parameters["height"]
+        self.width = parameters["width"]
+        self.readonly = parameters["readonly"] if "readonly" in parameters else []
+        self.dtype = parameters["dtype"] if "dtype" in parameters else {}
+        self.interpolation = (
+            parameters["interpolation"] if "interpolation" in parameters else {}
+        )
+        self.objects = objects
+
+    def _get_crop(self, points):
+        x_min = points[:, 0].min()
+        x_max = points[:, 0].max()
+        y_min = points[:, 1].min()
+        y_max = points[:, 1].max()
+        return x_min, x_max, y_min, y_max
+
+    def _get_rotation(self, points):
+        width = np.linalg.norm(points[0] - points[1])
+        # assert abs(np.linalg.norm(points[2] - points[3]) - width) < 1
+        height = np.linalg.norm(points[1] - points[2])
+        # assert abs(np.linalg.norm(points[0] - points[3]) - height) < 1
+        src_pts = np.array(points, dtype=np.float32)
+        dst_pts = np.array(
+            [
+                [0, 0],
+                [width - 1, 0],
+                [width - 1, height - 1],
+                [0, height - 1],
+            ],
+            dtype=np.float32,
+        )
+        return cv2.getPerspectiveTransform(src_pts, dst_pts), int(width), int(height)
+
+    def __call__(self, data):
+        # Refer to scripts/data_generator.py for the data structure
+        points = np.array(
+            [data["vfc"][1], data["vfc"][2], data["vfc"][3], data["vfc"][4]]
+        )
+        # Crop the image
+        x_min, x_max, y_min, y_max = self._get_crop(points)
+        for k, v in data.items():
+            if k in self.objects and k not in self.readonly:
+                data[k] = v[y_min:y_max, x_min:x_max].astype(self.dtype[k])
+
+        points -= [x_min, y_min]
+        # Rotate the image
+        M, width, height = self._get_rotation(points)
+        for k, v in data.items():
+            if k in self.objects and k not in self.readonly:
+                data[k] = cv2.resize(
+                    cv2.warpPerspective(v, M, (width, height)),
+                    (self.width, self.height),
+                    interpolation=(
+                        self.interpolation[k]
+                        if k in self.interpolation
+                        else cv2.INTER_LINEAR
+                    ),
+                )
+
+        data["proj/tlp"] = np.array([x_min, y_min])
+        data["proj/affmat"] = M
+        return data
+
+
+class RandomCrop(object):
     def __init__(self, parameters, objects):
         self.height = parameters["height"]
         self.width = parameters["width"]

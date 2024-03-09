@@ -4,10 +4,11 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-07 16:37:58
+# @Last Modified at: 2024-03-09 19:59:10
 # @Email:  root@haozhexie.com
 
 import copy
+import cv2
 import numpy as np
 import os
 import torch
@@ -100,15 +101,26 @@ class CitySampleDataset(torch.utils.data.Dataset):
         view_idx = int(rendering["name"].split("/")[-1])
 
         Rt = (
-            self.memcached["Rt"]
+            self.memcached["Rt"].copy()
             if "Rt" in self.memcached
             else utils.io.IO.get(rendering["Rt"])
         )
         centers = (
-            self.memcached["centers"]
+            self.memcached["centers"].copy()
             if "centers" in self.memcached
             else utils.io.IO.get(rendering["centers"])
         )
+        proj_hf = np.array(
+            self.memcached["proj/hf"].copy()
+            if "proj/hf" in self.memcached
+            else utils.io.IO.get(rendering["proj/hf"])
+        )
+        proj_seg = np.array(
+            self.memcached["proj/seg"].copy()
+            if "proj/seg" in self.memcached
+            else utils.io.IO.get(rendering["proj/seg"])
+        )
+
         rgb = np.array(utils.io.IO.get(rendering["rgb"]), dtype=np.float32)
         rgb = rgb / 255.0 * 2 - 1
         seg = np.array(utils.io.IO.get(rendering["seg"]).convert("P"))
@@ -130,6 +142,9 @@ class CitySampleDataset(torch.utils.data.Dataset):
             "centers": centers,
             "rgb": rgb,
             "seg": seg,
+            "proj/hf": proj_hf,
+            "proj/seg": proj_seg,
+            "vfc": pts["vfc"],
             "vpm": pts["vpm"],
             "msk": pts["msk"],
             "pts": pts["pts"],
@@ -161,6 +176,13 @@ class CitySampleDataset(torch.utils.data.Dataset):
                     "SemanticImage",
                     "%sSequence.%04d.png" % (c, i),
                 ),
+                # Projection
+                "proj/hf": os.path.join(
+                    cfg.DATASETS.CITY_SAMPLE.DIR, c, "Projection", "REST-TD_HF.png"
+                ),
+                "proj/seg": os.path.join(
+                    cfg.DATASETS.CITY_SAMPLE.DIR, c, "Projection", "REST-SEG.png"
+                ),
                 # Precomputed Points in the viewpoint (scripts/dataset_generator.py)
                 "pts": os.path.join(
                     cfg.DATASETS.CITY_SAMPLE.DIR, c, "Points", "%04d.pkl" % i
@@ -182,23 +204,53 @@ class CitySampleDataset(torch.utils.data.Dataset):
                 else:
                     self.memcached[v] = utils.io.IO.get(v)
 
-        return (
-            files
-            if split == "train"
-            else files[-16:]
-        )
+        return files if split == "train" else files[-16:]
 
     def _get_data_transforms(self, cfg, split):
         if split == "train":
             return utils.transforms.Compose(
                 [
                     {
-                        "callback": "Crop",
+                        "callback": "InstanceToClass",
                         "parameters": {
-                            "height": cfg.TRAIN.GAUSSIAN.CROP_SIZE[1],
-                            "width": cfg.TRAIN.GAUSSIAN.CROP_SIZE[0],
-                            "n_min_pixels": cfg.TRAIN.GAUSSIAN.N_MIN_PIXELS,
-                            "n_max_points": cfg.TRAIN.GAUSSIAN.N_MAX_POINTS,
+                            "map": [
+                                {
+                                    "src": cfg.DATASETS.CITY_SAMPLE.BLDG_RANGE,
+                                    "dst": cfg.DATASETS.CITY_SAMPLE.BLDG_FACADE_CLSID,
+                                },
+                                {
+                                    "src": cfg.DATASETS.CITY_SAMPLE.CAR_RANGE,
+                                    "dst": cfg.DATASETS.CITY_SAMPLE.CAR_CLSID,
+                                },
+                            ]
+                        },
+                        "objects": ["proj/seg"],
+                    },
+                    {
+                        "callback": "CropAndRotate",
+                        "parameters": {
+                            "height": cfg.TRAIN.GAUSSIAN.PROJ_CROP_SIZE[1],
+                            "width": cfg.TRAIN.GAUSSIAN.PROJ_CROP_SIZE[0],
+                            "readonly": ["vfc"],
+                            "dtype": {
+                                "proj/hf": np.float32,
+                                "proj/seg": np.uint8,
+                            },
+                            "interpolation": {
+                                "proj/hf": cv2.INTER_AREA,
+                                "proj/seg": cv2.INTER_NEAREST,
+                            },
+                        },
+                        "objects": ["proj/hf", "proj/seg", "vfc"],
+                    },
+                    {
+                        "callback": "RandomCrop",
+                        "parameters": {
+                            "height": cfg.TRAIN.GAUSSIAN.IMG_CROP_SIZE[1],
+                            "width": cfg.TRAIN.GAUSSIAN.IMG_CROP_SIZE[0],
+                            "mode": "center",
+                            # "n_min_pixels": cfg.TRAIN.GAUSSIAN.N_MIN_PIXELS,
+                            # "n_max_points": cfg.TRAIN.GAUSSIAN.N_MAX_POINTS,
                         },
                         "objects": ["rgb", "seg", "vpm", "msk"],
                     },
@@ -217,7 +269,7 @@ class CitySampleDataset(torch.utils.data.Dataset):
                         "parameters": {
                             "n_classes": cfg.DATASETS.CITY_SAMPLE.N_CLASSES,
                         },
-                        "objects": ["seg"],
+                        "objects": ["seg", "proj/seg"],
                     },
                     {
                         "callback": "ToTensor",
@@ -226,6 +278,10 @@ class CitySampleDataset(torch.utils.data.Dataset):
                             "rgb",
                             "seg",
                             "msk",
+                            "proj/hf",
+                            "proj/seg",
+                            "proj/tlp",
+                            "proj/affmat",
                             "pts",
                         ],
                     },
@@ -235,10 +291,43 @@ class CitySampleDataset(torch.utils.data.Dataset):
             return utils.transforms.Compose(
                 [
                     {
-                        "callback": "Crop",
+                        "callback": "InstanceToClass",
                         "parameters": {
-                            "height": cfg.TEST.GAUSSIAN.CROP_SIZE[1],
-                            "width": cfg.TEST.GAUSSIAN.CROP_SIZE[0],
+                            "map": [
+                                {
+                                    "src": cfg.DATASETS.CITY_SAMPLE.BLDG_RANGE,
+                                    "dst": cfg.DATASETS.CITY_SAMPLE.BLDG_FACADE_CLSID,
+                                },
+                                {
+                                    "src": cfg.DATASETS.CITY_SAMPLE.CAR_RANGE,
+                                    "dst": cfg.DATASETS.CITY_SAMPLE.CAR_CLSID,
+                                },
+                            ]
+                        },
+                        "objects": ["proj/seg"],
+                    },
+                    {
+                        "callback": "CropAndRotate",
+                        "parameters": {
+                            "height": cfg.TEST.GAUSSIAN.PROJ_CROP_SIZE[1],
+                            "width": cfg.TEST.GAUSSIAN.PROJ_CROP_SIZE[0],
+                            "readonly": ["vfc"],
+                            "dtype": {
+                                "proj/hf": np.float32,
+                                "proj/seg": np.uint8,
+                            },
+                            "interpolation": {
+                                "proj/hf": cv2.INTER_AREA,
+                                "proj/seg": cv2.INTER_NEAREST,
+                            },
+                        },
+                        "objects": ["proj/hf", "proj/seg", "vfc"],
+                    },
+                    {
+                        "callback": "RandomCrop",
+                        "parameters": {
+                            "height": cfg.TEST.GAUSSIAN.IMG_CROP_SIZE[1],
+                            "width": cfg.TEST.GAUSSIAN.IMG_CROP_SIZE[0],
                             "mode": "center",
                         },
                         "objects": ["rgb", "ins", "msk"],
@@ -267,6 +356,10 @@ class CitySampleDataset(torch.utils.data.Dataset):
                             "rgb",
                             "seg",
                             "msk",
+                            "proj/hf",
+                            "proj/seg",
+                            "proj/tlp",
+                            "proj/affmat",
                             "pts",
                         ],
                     },
