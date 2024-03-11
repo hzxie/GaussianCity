@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-09 20:09:37
+# @Last Modified at: 2024-03-11 19:14:48
 # @Email:  root@haozhexie.com
 
 import logging
@@ -18,7 +18,8 @@ import core.test
 import extensions.diff_gaussian_rasterization as dgr
 import losses.gan
 import losses.perceptual
-import models.gaussian
+import models.generator
+import models.discriminator
 import utils.average_meter
 import utils.datasets
 import utils.distributed
@@ -63,9 +64,9 @@ def train(cfg):
     )
 
     # Set up networks
-    gaussian_g = models.gaussian.GaussianGenerator(cfg, train_dataset.get_n_classes())
+    gaussian_g = models.generator.Generator(cfg, train_dataset.get_n_classes())
     if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
-        gaussian_d = models.gaussian.GaussianDiscriminator(
+        gaussian_d = models.discriminator.Discriminator(
             cfg, train_dataset.get_n_classes()
         )
     if torch.cuda.is_available():
@@ -205,17 +206,10 @@ def train(cfg):
             onehots = utils.helpers.get_one_hot(classes, train_dataset.get_n_classes())
             z = utils.helpers.get_z(instances, cfg.NETWORK.GAUSSIAN.Z_DIM)
             # Points positions at projection maps
-            abs_xy1 = torch.cat(
-                [
-                    abs_xyz[..., :2] - proj_tlp.unsqueeze(dim=1),
-                    torch.ones(1, 33925, 1, device=gaussian_g.device),
-                ],
-                dim=-1,
+            proj_size = train_dataset.get_proj_size()
+            proj_uv = utils.helpers.get_projection_uv(
+                abs_xyz, proj_tlp, proj_aff_mat, proj_size
             )
-            abs_xy = torch.bmm(proj_aff_mat, abs_xy1.permute(0, 2, 1)).permute(0, 2, 1)
-            # Make the number of points in the batch consistent
-            n_pts = pts.size(1)
-            pts = torch.cat([rel_xyz, onehots, z], dim=2)
 
             # Discriminator Update Step
             if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
@@ -223,10 +217,10 @@ def train(cfg):
                 utils.helpers.requires_grad(gaussian_d, True)
 
                 with torch.no_grad():
-                    pt_rgbs = gaussian_g(pts)
-                    gs_pts = utils.helpers.get_gaussian_points(
-                        n_pts, abs_xyz, scales, pt_rgbs
+                    pt_rgbs = gaussian_g(
+                        proj_uv, rel_xyz, onehots, z, proj_hf, proj_seg
                     )
+                    gs_pts = utils.helpers.get_gaussian_points(abs_xyz, scales, pt_rgbs)
                     fake_imgs = utils.helpers.get_gaussian_rasterization(
                         gs_pts,
                         gr,
@@ -257,8 +251,8 @@ def train(cfg):
                 utils.helpers.requires_grad(gaussian_d, False)
                 utils.helpers.requires_grad(gaussian_g, True)
 
-            pt_rgbs = gaussian_g(pts)
-            gs_pts = utils.helpers.get_gaussian_points(n_pts, abs_xyz, scales, pt_rgbs)
+            pt_rgbs = gaussian_g(proj_uv, rel_xyz, onehots, z, proj_hf, proj_seg)
+            gs_pts = utils.helpers.get_gaussian_points(abs_xyz, scales, pt_rgbs)
             fake_imgs = utils.helpers.get_gaussian_rasterization(
                 gs_pts, gr, data["cam_pos"], data["cam_quat"], data["crp"]
             )

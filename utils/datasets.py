@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-09 19:59:10
+# @Last Modified at: 2024-03-11 15:31:09
 # @Email:  root@haozhexie.com
 
 import copy
@@ -67,6 +67,9 @@ class CitySampleDataset(torch.utils.data.Dataset):
 
     def get_special_z_scale_classes(self):
         return list(self.cfg.DATASETS.CITY_SAMPLE.Z_SCALE_SPECIAL_CLASSES.values())
+
+    def get_proj_size(self):
+        return self.cfg.DATASETS.CITY_SAMPLE.PROJ_SIZE
 
     def instances_to_classes(self, instances):
         # Make it compatible in both numpy and PyTorch
@@ -229,8 +232,8 @@ class CitySampleDataset(torch.utils.data.Dataset):
                     {
                         "callback": "CropAndRotate",
                         "parameters": {
-                            "height": cfg.TRAIN.GAUSSIAN.PROJ_CROP_SIZE[1],
-                            "width": cfg.TRAIN.GAUSSIAN.PROJ_CROP_SIZE[0],
+                            "height": cfg.DATASETS.CITY_SAMPLE.PROJ_SIZE[1],
+                            "width": cfg.DATASETS.CITY_SAMPLE.PROJ_SIZE[0],
                             "readonly": ["vfc"],
                             "dtype": {
                                 "proj/hf": np.float32,
@@ -309,8 +312,8 @@ class CitySampleDataset(torch.utils.data.Dataset):
                     {
                         "callback": "CropAndRotate",
                         "parameters": {
-                            "height": cfg.TEST.GAUSSIAN.PROJ_CROP_SIZE[1],
-                            "width": cfg.TEST.GAUSSIAN.PROJ_CROP_SIZE[0],
+                            "height": cfg.DATASETS.CITY_SAMPLE.PROJ_SIZE[1],
+                            "width": cfg.DATASETS.CITY_SAMPLE.PROJ_SIZE[0],
                             "readonly": ["vfc"],
                             "dtype": {
                                 "proj/hf": np.float32,

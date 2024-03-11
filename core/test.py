@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:58:23
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-07 16:37:00
+# @Last Modified at: 2024-03-11 15:29:41
 # @Email:  root@haozhexie.com
 
 import logging
@@ -63,6 +63,13 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
         with torch.no_grad():
             pts = utils.helpers.var_or_cuda(data["pts"], gaussian_g.device)
             rgb = utils.helpers.var_or_cuda(data["rgb"], gaussian_g.device)
+            proj_hf = utils.helpers.var_or_cuda(data["proj/hf"], gaussian_g.device)
+            proj_seg = utils.helpers.var_or_cuda(data["proj/seg"], gaussian_g.device)
+            # tlp: Top-left pixel coordinates
+            proj_tlp = utils.helpers.var_or_cuda(data["proj/tlp"], gaussian_g.device)
+            proj_aff_mat = utils.helpers.var_or_cuda(
+                data["proj/affmat"], gaussian_g.device
+            )
             # msk = utils.helpers.var_or_cuda(data["msk"], gaussian_g.device)
 
             # Split pts into attributes
@@ -78,12 +85,16 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
                 classes, test_data_loader.dataset.get_n_classes()
             )
             z = utils.helpers.get_z(instances, cfg.NETWORK.GAUSSIAN.Z_DIM)
+            # Points positions at projection maps
+            proj_size = test_data_loader.dataset.get_proj_size()
+            proj_uv = utils.helpers.get_projection_uv(
+                abs_xyz, proj_tlp, proj_aff_mat, proj_size
+            )
             # Make the number of points in the batch consistent
-            n_pts = pts.size(1)
-            pts = torch.cat([rel_xyz, onehots, z], dim=2)
+            pts = torch.cat([proj_uv, rel_xyz, onehots, z], dim=2)
 
             pt_rgbs = gaussian_g(pts)
-            gs_pts = utils.helpers.get_gaussian_points(n_pts, abs_xyz, scales, pt_rgbs)
+            gs_pts = utils.helpers.get_gaussian_points(abs_xyz, scales, pt_rgbs)
             fake_imgs = utils.helpers.get_gaussian_rasterization(
                 gs_pts,
                 gr,

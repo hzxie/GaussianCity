@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-04 17:03:33
+# @Last Modified at: 2024-03-11 15:53:06
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -164,6 +164,25 @@ def onehot_to_mask(onehot, ignored_classes=[]):
     return mask
 
 
+def get_projection_uv(xyz, proj_tlp, proj_aff_mat, proj_size):
+    n_pts = xyz.size(1)
+    proj_xy1 = torch.cat(
+        [
+            xyz[..., :2] - proj_tlp.unsqueeze(dim=1),
+            torch.ones(1, n_pts, 1, device=xyz.device),
+        ],
+        dim=-1,
+    )
+    proj_uv = torch.bmm(proj_aff_mat, proj_xy1.permute(0, 2, 1)).permute(0, 2, 1)[
+        ..., :2
+    ]
+    assert proj_uv.size() == (xyz.size(0), n_pts, 2)
+    proj_uv[..., 0] /= proj_size[0]
+    proj_uv[..., 1] /= proj_size[1]
+    # Normalize to [-1, 1]
+    return proj_uv * 2 - 1
+
+
 def get_point_scales(scales, classes, special_z_scale_classes=[]):
     if isinstance(scales, np.ndarray):
         scales = torch.from_numpy(scales)
@@ -186,9 +205,11 @@ def get_point_scales(scales, classes, special_z_scale_classes=[]):
     return scales_3d
 
 
-def get_gaussian_points(n_pts, xyz, scales, rgbs):
-    batch_size = rgbs.size(0)
-    rgbs = rgbs[:, :n_pts]
+def get_gaussian_points(xyz, scales, rgbs):
+    batch_size = xyz.size(0)
+    n_pts = xyz.size(1)
+    assert rgbs.size(1) == n_pts
+    # rgbs = rgbs[:, :n_pts]
     opacity = torch.ones((batch_size, n_pts, 1), device=rgbs.device)
     rotations = torch.cat(
         [
