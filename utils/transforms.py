@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 14:18:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-12 09:19:41
+# @Last Modified at: 2024-03-12 18:46:59
 # @Email:  root@haozhexie.com
 
 import cv2
@@ -96,8 +96,8 @@ class RandomCrop(object):
                 n_points = len(np.unique(visible_pts))
                 if n_points <= self.n_max_points:
                     break
-        else:
-            offset_x, offset_y = None, None
+        # else:
+        #     offset_x, offset_y = None, None
 
         return offset_x, offset_y, mask, visible_pts
 
@@ -108,8 +108,8 @@ class RandomCrop(object):
             offset_x, offset_y, mask, visible_pts = self._get_crop_position(
                 data, width, height
             )
-            width /= 2
-            height /= 2
+            # width /= 2
+            # height /= 2
 
         # Crop all data fields simultaneously
         data["crp"] = {
