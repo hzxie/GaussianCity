@@ -4,14 +4,14 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:58:23
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-11 15:29:41
+# @Last Modified at: 2024-03-11 20:05:30
 # @Email:  root@haozhexie.com
 
 import logging
 import torch
 
 import extensions.diff_gaussian_rasterization as dgr
-import models.gaussian
+import models.generator
 import utils.average_meter
 import utils.datasets
 import utils.helpers
@@ -32,7 +32,7 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
         )
 
     if gaussian_g is None:
-        gaussian_g = models.gaussian.GaussianGenerator(
+        gaussian_g = models.generator.Generator(
             cfg, test_data_loader.dataset.get_n_classes()
         )
         if torch.cuda.is_available():
@@ -70,7 +70,6 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
             proj_aff_mat = utils.helpers.var_or_cuda(
                 data["proj/affmat"], gaussian_g.device
             )
-            # msk = utils.helpers.var_or_cuda(data["msk"], gaussian_g.device)
 
             # Split pts into attributes
             abs_xyz = pts[:, :, :3]
@@ -90,10 +89,8 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
             proj_uv = utils.helpers.get_projection_uv(
                 abs_xyz, proj_tlp, proj_aff_mat, proj_size
             )
-            # Make the number of points in the batch consistent
-            pts = torch.cat([proj_uv, rel_xyz, onehots, z], dim=2)
 
-            pt_rgbs = gaussian_g(pts)
+            pt_rgbs = gaussian_g(proj_uv, rel_xyz, onehots, z, proj_hf, proj_seg)
             gs_pts = utils.helpers.get_gaussian_points(abs_xyz, scales, pt_rgbs)
             fake_imgs = utils.helpers.get_gaussian_rasterization(
                 gs_pts,

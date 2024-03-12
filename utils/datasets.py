@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-11 15:31:09
+# @Last Modified at: 2024-03-11 20:03:29
 # @Email:  root@haozhexie.com
 
 import copy
@@ -350,7 +350,7 @@ class CitySampleDataset(torch.utils.data.Dataset):
                         "parameters": {
                             "n_classes": cfg.DATASETS.CITY_SAMPLE.N_CLASSES,
                         },
-                        "objects": ["seg"],
+                        "objects": ["seg", "proj/seg"],
                     },
                     {
                         "callback": "ToTensor",
