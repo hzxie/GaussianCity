@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-12 10:50:56
+# @Last Modified at: 2024-03-12 11:06:58
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -172,6 +172,7 @@ def get_water_areas(projection):
     # The rest areas are assigned as the water areas, which is aligned with CitySample.
     water_area = projection["INS"] == CLASSES["GAUSSIAN"]["NULL"]
     projection["INS"][water_area] = CLASSES["GAUSSIAN"]["WATER"]
+    projection["SEG"][water_area] = CLASSES["GAUSSIAN"]["WATER"]
     projection["TD_HF"][water_area] = 0
     projection["BU_HF"][water_area] = 0
 
