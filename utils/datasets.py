@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-12 09:19:24
+# @Last Modified at: 2024-03-12 13:31:29
 # @Email:  root@haozhexie.com
 
 import copy
@@ -113,16 +113,6 @@ class CitySampleDataset(torch.utils.data.Dataset):
             if "centers" in self.memcached
             else utils.io.IO.get(rendering["centers"])
         )
-        proj_hf = np.array(
-            self.memcached["proj/hf"].copy()
-            if "proj/hf" in self.memcached
-            else utils.io.IO.get(rendering["proj/hf"])
-        )
-        proj_seg = np.array(
-            self.memcached["proj/seg"].copy()
-            if "proj/seg" in self.memcached
-            else utils.io.IO.get(rendering["proj/seg"])
-        )
 
         rgb = np.array(utils.io.IO.get(rendering["rgb"]), dtype=np.float32)
         rgb = rgb / 255.0 * 2 - 1
@@ -145,9 +135,10 @@ class CitySampleDataset(torch.utils.data.Dataset):
             "centers": centers,
             "rgb": rgb,
             "seg": seg,
-            "proj/hf": proj_hf,
-            "proj/seg": proj_seg,
-            "vfc": pts["vfc"],
+            "proj/hf": pts["prj"]["TD_HF"],
+            "proj/seg": pts["prj"]["SEG"],
+            "proj/affmat": pts["prj"]["affmat"],
+            "proj/tlp": pts["prj"]["tlp"],
             "vpm": pts["vpm"],
             "msk": pts["msk"],
             "pts": pts["pts"],

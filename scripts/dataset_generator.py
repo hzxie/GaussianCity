@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-12 11:06:58
+# @Last Modified at: 2024-03-12 13:42:26
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -344,8 +344,8 @@ def get_local_projections(projections, local_cords):
             interpolation=m_intp,
         )
 
-    local_projections["proj/tlp"] = np.array([x_min, y_min])
-    local_projections["proj/affmat"] = M
+    local_projections["tlp"] = np.array([x_min, y_min])
+    local_projections["affmat"] = M
     return local_projections
 
 
@@ -719,7 +719,7 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
 if __name__ == "__main__":
     logging.basicConfig(
         format="[%(levelname)s] %(asctime)s %(message)s",
-        level=logging.DEBUG,
+        level=logging.INFO,
     )
     parser = argparse.ArgumentParser()
     parser.add_argument(
