@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-12 13:31:29
+# @Last Modified at: 2024-03-12 16:54:41
 # @Email:  root@haozhexie.com
 
 import copy
@@ -209,9 +209,8 @@ class CitySampleDataset(torch.utils.data.Dataset):
                         "parameters": {
                             "height": cfg.TRAIN.GAUSSIAN.IMG_CROP_SIZE[1],
                             "width": cfg.TRAIN.GAUSSIAN.IMG_CROP_SIZE[0],
-                            "mode": "center",
-                            # "n_min_pixels": cfg.TRAIN.GAUSSIAN.N_MIN_PIXELS,
-                            # "n_max_points": cfg.TRAIN.GAUSSIAN.N_MAX_POINTS,
+                            "n_min_pixels": cfg.TRAIN.GAUSSIAN.N_MIN_PIXELS,
+                            "n_max_points": cfg.TRAIN.GAUSSIAN.N_MAX_POINTS,
                         },
                         "objects": ["rgb", "seg", "vpm", "msk"],
                     },

@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:58:23
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-11 20:05:30
+# @Last Modified at: 2024-03-12 13:51:43
 # @Email:  root@haozhexie.com
 
 import logging
@@ -65,7 +65,6 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
             rgb = utils.helpers.var_or_cuda(data["rgb"], gaussian_g.device)
             proj_hf = utils.helpers.var_or_cuda(data["proj/hf"], gaussian_g.device)
             proj_seg = utils.helpers.var_or_cuda(data["proj/seg"], gaussian_g.device)
-            # tlp: Top-left pixel coordinates
             proj_tlp = utils.helpers.var_or_cuda(data["proj/tlp"], gaussian_g.device)
             proj_aff_mat = utils.helpers.var_or_cuda(
                 data["proj/affmat"], gaussian_g.device

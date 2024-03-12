@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:36:52
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-11 19:31:12
+# @Last Modified at: 2024-03-12 16:33:22
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -185,25 +185,45 @@ class ColorMLP(torch.nn.Module):
             in_dim,
             hidden_dim,
         )
-        self.fc_2 = torch.nn.Linear(
+        self.fc_2 = ModLinear(
             hidden_dim,
             hidden_dim,
+            z_dim,
+            bias=False,
+            mod_bias=True,
+            output_mode=True,
         )
-        self.fc_3 = torch.nn.Linear(
+        self.fc_3 = ModLinear(
             hidden_dim,
             hidden_dim,
+            z_dim,
+            bias=False,
+            mod_bias=True,
+            output_mode=True,
         )
-        self.fc_4 = torch.nn.Linear(
+        self.fc_4 = ModLinear(
             hidden_dim,
             hidden_dim,
+            z_dim,
+            bias=False,
+            mod_bias=True,
+            output_mode=True,
         )
-        self.fc_5 = torch.nn.Linear(
+        self.fc_5 = ModLinear(
             hidden_dim,
             hidden_dim,
+            z_dim,
+            bias=False,
+            mod_bias=True,
+            output_mode=True,
         )
-        self.fc_6 = torch.nn.Linear(
+        self.fc_6 = ModLinear(
             hidden_dim,
             hidden_dim,
+            z_dim,
+            bias=False,
+            mod_bias=True,
+            output_mode=True,
         )
         self.fc_out = torch.nn.Linear(
             hidden_dim,
@@ -216,11 +236,11 @@ class ColorMLP(torch.nn.Module):
         f = f + self.fc_m_a(onehots)
 
         f = self.act(f)
-        f = self.act(self.fc_2(f))
-        f = self.act(self.fc_3(f))
-        f = self.act(self.fc_4(f))
-        f = self.act(self.fc_5(f))
-        f = self.act(self.fc_6(f))
+        f = self.act(self.fc_2(f, z))
+        f = self.act(self.fc_3(f, z))
+        f = self.act(self.fc_4(f, z))
+        f = self.act(self.fc_5(f, z))
+        f = self.act(self.fc_6(f, z))
         return self.fc_out(f)
 
 
@@ -295,16 +315,17 @@ class ModLinear(torch.nn.Module):
         return x
 
     # x: B, ...   , Cin
-    # z: B, 1, 1, , Cz
+    # z: B, ...   , Cz
     def forward(self, x, z):
-        x_shape = x.shape
-        z_shape = z.shape
-        x = x.reshape(x_shape[0], -1, x_shape[-1])
-        z = z.reshape(z_shape[0], 1, z_shape[-1])
+        # x_shape = x.shape
+        # z_shape = z.shape
+        # x = x.reshape(x_shape[0], -1, x_shape[-1])
+        # z = z.reshape(z_shape[0], -1, z_shape[-1])
 
         alpha = self._linear_f(z, self.weight_alpha, self.bias_alpha)  # [B, ..., I]
         w = self.weight.to(x.dtype)  # [O I]
-        w = w.unsqueeze(0) * alpha  # [1 O I] * [B 1 I] = [B O I]
+        # w = w.unsqueeze(0) * alpha
+        w = alpha @ w   # [B, ..., O]
 
         if self.mod_bias:
             beta = self._linear_f(z, self.weight_beta, self.bias_beta)  # [B, ..., I]
@@ -322,8 +343,11 @@ class ModLinear(torch.nn.Module):
 
         # [B ? I] @ [B I O] = [B ? O]
         if b is not None:
-            x = torch.baddbmm(b, x, w.transpose(1, 2))
+            # x = torch.baddbmm(b, x, w.transpose(1, 2))
+            x = x * w + b
         else:
-            x = x.bmm(w.transpose(1, 2))
-        x = x.reshape(*x_shape[:-1], x.shape[-1])
+            # x = x.bmm(w.transpose(1, 2))
+            x = x * w
+
+        # x = x.reshape(*x_shape[:-1], x.shape[-1])
         return x
