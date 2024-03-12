@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-11 20:03:29
+# @Last Modified at: 2024-03-12 09:19:24
 # @Email:  root@haozhexie.com
 
 import copy
@@ -214,39 +214,6 @@ class CitySampleDataset(torch.utils.data.Dataset):
             return utils.transforms.Compose(
                 [
                     {
-                        "callback": "InstanceToClass",
-                        "parameters": {
-                            "map": [
-                                {
-                                    "src": cfg.DATASETS.CITY_SAMPLE.BLDG_RANGE,
-                                    "dst": cfg.DATASETS.CITY_SAMPLE.BLDG_FACADE_CLSID,
-                                },
-                                {
-                                    "src": cfg.DATASETS.CITY_SAMPLE.CAR_RANGE,
-                                    "dst": cfg.DATASETS.CITY_SAMPLE.CAR_CLSID,
-                                },
-                            ]
-                        },
-                        "objects": ["proj/seg"],
-                    },
-                    {
-                        "callback": "CropAndRotate",
-                        "parameters": {
-                            "height": cfg.DATASETS.CITY_SAMPLE.PROJ_SIZE[1],
-                            "width": cfg.DATASETS.CITY_SAMPLE.PROJ_SIZE[0],
-                            "readonly": ["vfc"],
-                            "dtype": {
-                                "proj/hf": np.float32,
-                                "proj/seg": np.uint8,
-                            },
-                            "interpolation": {
-                                "proj/hf": cv2.INTER_AREA,
-                                "proj/seg": cv2.INTER_NEAREST,
-                            },
-                        },
-                        "objects": ["proj/hf", "proj/seg", "vfc"],
-                    },
-                    {
                         "callback": "RandomCrop",
                         "parameters": {
                             "height": cfg.TRAIN.GAUSSIAN.IMG_CROP_SIZE[1],
@@ -293,39 +260,6 @@ class CitySampleDataset(torch.utils.data.Dataset):
         else:
             return utils.transforms.Compose(
                 [
-                    {
-                        "callback": "InstanceToClass",
-                        "parameters": {
-                            "map": [
-                                {
-                                    "src": cfg.DATASETS.CITY_SAMPLE.BLDG_RANGE,
-                                    "dst": cfg.DATASETS.CITY_SAMPLE.BLDG_FACADE_CLSID,
-                                },
-                                {
-                                    "src": cfg.DATASETS.CITY_SAMPLE.CAR_RANGE,
-                                    "dst": cfg.DATASETS.CITY_SAMPLE.CAR_CLSID,
-                                },
-                            ]
-                        },
-                        "objects": ["proj/seg"],
-                    },
-                    {
-                        "callback": "CropAndRotate",
-                        "parameters": {
-                            "height": cfg.DATASETS.CITY_SAMPLE.PROJ_SIZE[1],
-                            "width": cfg.DATASETS.CITY_SAMPLE.PROJ_SIZE[0],
-                            "readonly": ["vfc"],
-                            "dtype": {
-                                "proj/hf": np.float32,
-                                "proj/seg": np.uint8,
-                            },
-                            "interpolation": {
-                                "proj/hf": cv2.INTER_AREA,
-                                "proj/seg": cv2.INTER_NEAREST,
-                            },
-                        },
-                        "objects": ["proj/hf", "proj/seg", "vfc"],
-                    },
                     {
                         "callback": "RandomCrop",
                         "parameters": {

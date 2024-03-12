@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-08 10:19:42
+# @Last Modified at: 2024-03-12 10:50:56
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -12,7 +12,6 @@ import csv
 import cv2
 import json
 import logging
-import logging.config
 import math
 import numpy as np
 import os
@@ -77,6 +76,7 @@ CONSTANTS = {
     "SCALE": 20,  # 5x -> 1m (100 cm): 5 pixels
     "WATER_Z": -17.5,
     "MAP_SIZE": 24576,
+    "LOCAL_MAP_SIZE": 2048,
     "IMAGE_WIDTH": 1920,
     "IMAGE_HEIGHT": 1080,
     "PATCH_SIZE": 5000,
@@ -108,7 +108,7 @@ def _get_get_points_projection(points):
     # assert points.dtype == np.int16
     INVERSE_INDEX = {v: k for k, v in CLASSES["HOUDINI"].items()}
     pts_map = np.zeros((CONSTANTS["MAP_SIZE"], CONSTANTS["MAP_SIZE"]), dtype=bool)
-    seg_map = np.zeros(
+    ins_map = np.zeros(
         (CONSTANTS["MAP_SIZE"], CONSTANTS["MAP_SIZE"]), dtype=points.dtype
     )
     tpd_hf = -1 * np.ones(
@@ -138,7 +138,7 @@ def _get_get_points_projection(points):
         pts_map[y, x] = True
         if tpd_hf[y, x] < z:
             tpd_hf[y : y + s, x : x + s] = z
-            seg_map[y : y + s, x : x + s] = (
+            ins_map[y : y + s, x : x + s] = (
                 CLASSES["GAUSSIAN"][c_name]
                 if c_name not in ["BLDG_FACADE", "BLDG_ROOF", "CAR"]
                 else c_id
@@ -146,13 +146,32 @@ def _get_get_points_projection(points):
         if btu_hf[y, x] > z:
             btu_hf[y : y + s, x : x + s] = z
 
-    return {"PTS": pts_map, "SEG": seg_map, "TD_HF": tpd_hf, "BU_HF": btu_hf}
+    seg_map = _get_seg_map_from_ins_map(ins_map)
+    return {
+        "PTS": pts_map,
+        "INS": ins_map,
+        "SEG": seg_map,
+        "TD_HF": tpd_hf,
+        "BU_HF": btu_hf,
+    }
+
+
+def _get_seg_map_from_ins_map(ins_map):
+    ins_map = ins_map.copy()
+    ins_map[ins_map >= CONSTANTS["CAR_INS_MIN_ID"]] = CLASSES["GAUSSIAN"]["CAR"]
+    ins_map[
+        np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))
+    ] = CLASSES["GAUSSIAN"]["BLDG_ROOF"]
+    ins_map[ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]] = CLASSES["GAUSSIAN"][
+        "BLDG_FACADE"
+    ]
+    return ins_map
 
 
 def get_water_areas(projection):
     # The rest areas are assigned as the water areas, which is aligned with CitySample.
-    water_area = projection["SEG"] == CLASSES["GAUSSIAN"]["NULL"]
-    projection["SEG"][water_area] = CLASSES["GAUSSIAN"]["WATER"]
+    water_area = projection["INS"] == CLASSES["GAUSSIAN"]["NULL"]
+    projection["INS"][water_area] = CLASSES["GAUSSIAN"]["WATER"]
     projection["TD_HF"][water_area] = 0
     projection["BU_HF"][water_area] = 0
 
@@ -177,19 +196,22 @@ def dump_projections(projections, output_dir, is_debug):
         for k, v in p.items():
             out_fpath = os.path.join(output_dir, "%s-%s.png" % (c, k))
             if is_debug:
-                if k == "SEG":
-                    utils.helpers.get_ins_seg_map(v).save(out_fpath)
+                if k in ["SEG", "INS"]:
+                    utils.helpers.get_seg_map(v).save(out_fpath)
                 else:
                     Image.fromarray((v / np.max(v) * 255).astype(np.uint8)).save(
                         out_fpath
                     )
+            elif k == "SEG":
+                v = _get_seg_map_from_ins_map(v)
+                utils.helpers.get_seg_map(v).save(out_fpath)
             else:
                 Image.fromarray(v.astype(np.int16)).save(out_fpath)
 
 
 def load_projections(output_dir):
     CATEGORIES = ["CAR", "FWY", "REST"]
-    MAP_NAMES = ["SEG", "TD_HF", "BU_HF", "PTS"]
+    MAP_NAMES = ["INS", "SEG", "TD_HF", "BU_HF", "PTS"]
 
     projections = {}
     for c in CATEGORIES:
@@ -214,13 +236,13 @@ def load_projections(output_dir):
 def get_centers_from_projections(projections):
     centers = {}
     for c, p in projections.items():
-        instances = np.unique(p["SEG"])
+        instances = np.unique(p["INS"])
         # Append SKY to instances. Since SKY is not in the semantic map.
         instances = np.append(instances, CLASSES["GAUSSIAN"]["SKY"])
 
         for i in tqdm(instances, desc="Calculating centers for %s" % c):
             if i >= CONSTANTS["BLDG_INS_MIN_ID"]:
-                ds_mask = p["SEG"] == i
+                ds_mask = p["INS"] == i
                 contours, _ = cv2.findContours(
                     ds_mask.astype(np.uint8),
                     cv2.RETR_EXTERNAL,
@@ -292,6 +314,66 @@ def get_view_frustum_cords(cam_pos, cam_look_at, patch_size, fov_rad):
     return np.array([(x1, y1), (x4, y4), (x5, y5), (x7, y7), (x8, y8)], dtype=np.int16)
 
 
+def get_local_projections(projections, local_cords):
+    MAPS = [
+        {"name": "SEG", "dtype": np.uint8, "interpolation": cv2.INTER_NEAREST},
+        {"name": "TD_HF", "dtype": np.float32, "interpolation": cv2.INTER_AREA},
+    ]
+
+    local_projections = {m["name"]: projections[m["name"]].copy() for m in MAPS}
+    points = np.array([local_cords[1], local_cords[2], local_cords[3], local_cords[4]])
+    # Crop the image
+    x_min, x_max, y_min, y_max = _get_crop(points)
+    for m in MAPS:
+        m_name = m["name"]
+        m_type = m["dtype"]
+        local_projections[m_name] = local_projections[m_name][
+            y_min:y_max, x_min:x_max
+        ].astype(m_type)
+
+    points -= [x_min, y_min]
+    # Rotate the image
+    M, width, height = _get_rotation(points)
+    for m in MAPS:
+        m_name = m["name"]
+        m_intp = m["interpolation"]
+        local_projections[m_name] = cv2.resize(
+            cv2.warpPerspective(local_projections[m_name], M, (width, height)),
+            (CONSTANTS["LOCAL_MAP_SIZE"], CONSTANTS["LOCAL_MAP_SIZE"]),
+            interpolation=m_intp,
+        )
+
+    local_projections["proj/tlp"] = np.array([x_min, y_min])
+    local_projections["proj/affmat"] = M
+    return local_projections
+
+
+def _get_crop(points):
+    x_min = points[:, 0].min()
+    x_max = points[:, 0].max()
+    y_min = points[:, 1].min()
+    y_max = points[:, 1].max()
+    return x_min, x_max, y_min, y_max
+
+
+def _get_rotation(points):
+    width = np.linalg.norm(points[0] - points[1])
+    # assert abs(np.linalg.norm(points[2] - points[3]) - width) < 1
+    height = np.linalg.norm(points[1] - points[2])
+    # assert abs(np.linalg.norm(points[0] - points[3]) - height) < 1
+    src_pts = np.array(points, dtype=np.float32)
+    dst_pts = np.array(
+        [
+            [0, 0],
+            [width - 1, 0],
+            [width - 1, height - 1],
+            [0, height - 1],
+        ],
+        dtype=np.float32,
+    )
+    return cv2.getPerspectiveTransform(src_pts, dst_pts), int(width), int(height)
+
+
 def get_points_from_projections(projections, local_cords=None):
     # XYZ, Scale, Instance ID
     points = np.empty((0, 5), dtype=np.int16)
@@ -344,7 +426,7 @@ def _get_points_from_projection(projection, local_cords=None, include_btm_pts=Tr
         include_btm_pts,
         {v: k for k, v in CLASSES["GAUSSIAN"].items()},
         SCALES,
-        _projection["SEG"],
+        _projection["INS"],
         _projection["TD_HF"],
         _projection["BU_HF"],
         _projection["PTS"].astype(bool),
@@ -472,20 +554,7 @@ def get_visible_points(points, scales, cam_rig, cam_pos, cam_quat):
     # Image.fromarray(
     #     utils.helpers.get_ins_seg_map.r_palatte[ins_map.cpu().numpy()],
     # ).save("output/test.jpg")
-
     return vp_map.cpu().numpy(), ins_map.cpu().numpy()
-
-
-def _get_seg_map_from_ins_map(ins_map):
-    ins_map = ins_map.copy()
-    ins_map[ins_map >= CONSTANTS["CAR_INS_MIN_ID"]] = CLASSES["GAUSSIAN"]["CAR"]
-    ins_map[
-        np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))
-    ] = CLASSES["GAUSSIAN"]["BLDG_ROOF"]
-    ins_map[ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]] = CLASSES["GAUSSIAN"][
-        "BLDG_FACADE"
-    ]
-    return ins_map
 
 
 def main(data_dir, seg_map_file_pattern, gpus, is_debug):
@@ -540,9 +609,13 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
         #     projections = pickle.load(fp)
 
         logging.info("Calculate the XY center for instances...")
-        centers = get_centers_from_projections(projections)
-        with open(os.path.join(city_dir, "CENTERS.pkl"), "wb") as fp:
-            pickle.dump(centers, fp)
+        if os.path.exists(os.path.join(city_dir, "CENTERS.pkl")):
+            with open(os.path.join(city_dir, "CENTERS.pkl"), "rb") as fp:
+                centers = pickle.load(fp)
+        else:
+            centers = get_centers_from_projections(projections)
+            with open(os.path.join(city_dir, "CENTERS.pkl"), "wb") as fp:
+                pickle.dump(centers, fp)
 
         # # Debug: Generate all initial points (casues OOM in rasterization)
         # logging.info("Generate the initial points for the whole city...")
@@ -586,9 +659,7 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
         )
 
         city_points_dir = os.path.join(city_dir, "Points")
-        city_insseg_dir = os.path.join(city_dir, "InstanceImage")
         os.makedirs(city_points_dir, exist_ok=True)
-        os.makedirs(city_insseg_dir, exist_ok=True)
         for r in tqdm(rows, desc="Rendering Gaussian Points"):
             cam_quat = np.array([r["qx"], r["qy"], r["qz"], r["qw"]], dtype=np.float32)
             cam_pos = (
@@ -599,15 +670,18 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             cam_pos[1] += CONSTANTS["MAP_SIZE"] // 2
             cam_look_at = utils.helpers.get_camera_look_at(cam_pos, cam_quat)
             logging.debug("Current Camera: %s, Look at: %s" % (cam_pos, cam_look_at))
-            local_cords = get_view_frustum_cords(
+            view_frustum_cords = get_view_frustum_cords(
                 cam_pos,
                 cam_look_at,
                 CONSTANTS["PATCH_SIZE"],
                 # TODO: 1.5 -> 2.0. But 2.0 causes incomplete rendering.
                 fov_x / 1.5,
             )
-            points = get_points_from_projections(projections, local_cords)
-            sky_points = get_sky_points(local_cords[1:3], cam_pos[2], fov_y / 2)
+            local_projections = get_local_projections(
+                projections["REST"], view_frustum_cords
+            )
+            points = get_points_from_projections(projections, view_frustum_cords)
+            sky_points = get_sky_points(view_frustum_cords[1:3], cam_pos[2], fov_y / 2)
             points = np.concatenate((points, sky_points), axis=0)
             scales = utils.helpers.get_point_scales(points[:, [3]], points[:, [4]])
 
@@ -632,7 +706,7 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             ) as fp:
                 pickle.dump(
                     {
-                        "vfc": local_cords,
+                        "prj": local_projections,
                         "vpm": vp_map,
                         "msk": _get_seg_map_from_ins_map(ins_map) == seg_map,
                         "pts": points,
@@ -644,7 +718,7 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
 if __name__ == "__main__":
     logging.basicConfig(
         format="[%(levelname)s] %(asctime)s %(message)s",
-        level=logging.INFO,
+        level=logging.DEBUG,
     )
     parser = argparse.ArgumentParser()
     parser.add_argument(
