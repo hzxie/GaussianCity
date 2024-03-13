@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-13 14:44:18
+# @Last Modified at: 2024-03-13 18:32:59
 # @Email:  root@haozhexie.com
 
 import copy
@@ -271,7 +271,7 @@ class CitySampleDataset(torch.utils.data.Dataset):
                             "width": cfg.TEST.GAUSSIAN.IMG_CROP_SIZE[0],
                             "mode": "center",
                         },
-                        "objects": ["rgb", "ins", "msk"],
+                        "objects": ["rgb", "seg", "vpm", "msk"],
                     },
                     {
                         "callback": "RandomInstance",

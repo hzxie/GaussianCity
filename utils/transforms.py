@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 14:18:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-13 14:45:43
+# @Last Modified at: 2024-03-13 18:46:01
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -131,6 +131,7 @@ class RandomCrop(object):
 
 class RandomInstance(object):
     def __init__(self, parameters, objects):
+        self.range = parameters["range"] if "range" in parameters else None
         self.n_instances = (
             parameters["n_instances"] if "n_instances" in parameters else 1
         )
@@ -139,6 +140,10 @@ class RandomInstance(object):
     def __call__(self, data):
         ins_map = data["ins"] * data["msk"]
         visible_ins = np.unique(ins_map[ins_map > 0])
+        if self.range is not None:
+            visible_ins = visible_ins[visible_ins >= self.range[0]]
+            visible_ins = visible_ins[visible_ins < self.range[1]]
+
         ins = np.random.choice(visible_ins, self.n_instances, replace=False)
         ins_mask = np.isin(data["ins"], ins)
 
