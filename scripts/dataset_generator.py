@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-12 13:42:26
+# @Last Modified at: 2024-03-13 11:23:31
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -697,6 +697,9 @@ def main(data_dir, seg_map_file_pattern, gpus, is_debug):
             # Re-generate the visible points map in the newly indexed points
             vp_map = np.searchsorted(vp_idx, vp_map)
 
+            # Image.fromarray(ins_map.astype(np.uint16)).save(
+            #     os.path.join(city_dir, "InstanceImage", "%04d.png" % int(r["id"]))
+            # )
             seg_map = np.array(
                 Image.open(
                     os.path.join(city_dir, seg_map_file_pattern % (city, int(r["id"])))

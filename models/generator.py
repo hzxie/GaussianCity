@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:36:52
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-12 16:33:22
+# @Last Modified at: 2024-03-13 11:16:41
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -317,15 +317,15 @@ class ModLinear(torch.nn.Module):
     # x: B, ...   , Cin
     # z: B, ...   , Cz
     def forward(self, x, z):
-        # x_shape = x.shape
-        # z_shape = z.shape
-        # x = x.reshape(x_shape[0], -1, x_shape[-1])
-        # z = z.reshape(z_shape[0], -1, z_shape[-1])
+        x_shape = x.shape
+        z_shape = z.shape
+        x = x.reshape(x_shape[0], -1, x_shape[-1])
+        z = z.reshape(z_shape[0], -1, z_shape[-1])
 
         alpha = self._linear_f(z, self.weight_alpha, self.bias_alpha)  # [B, ..., I]
         w = self.weight.to(x.dtype)  # [O I]
-        # w = w.unsqueeze(0) * alpha
-        w = alpha @ w   # [B, ..., O]
+        w = w.unsqueeze(0) * alpha
+        # w = alpha @ w  # [B, ..., O]
 
         if self.mod_bias:
             beta = self._linear_f(z, self.weight_beta, self.bias_beta)  # [B, ..., I]
@@ -343,11 +343,11 @@ class ModLinear(torch.nn.Module):
 
         # [B ? I] @ [B I O] = [B ? O]
         if b is not None:
-            # x = torch.baddbmm(b, x, w.transpose(1, 2))
-            x = x * w + b
+            x = torch.baddbmm(b, x, w.transpose(1, 2))
+            # x = x * w + b
         else:
-            # x = x.bmm(w.transpose(1, 2))
-            x = x * w
+            x = x.bmm(w.transpose(1, 2))
+            # x = x * w
 
-        # x = x.reshape(*x_shape[:-1], x.shape[-1])
+        x = x.reshape(*x_shape[:-1], x.shape[-1])
         return x

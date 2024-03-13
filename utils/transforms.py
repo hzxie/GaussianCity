@@ -4,12 +4,10 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 14:18:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-12 18:46:59
+# @Last Modified at: 2024-03-13 14:45:43
 # @Email:  root@haozhexie.com
 
-import cv2
 import numpy as np
-import random
 import torch
 
 
@@ -69,7 +67,7 @@ class RandomCrop(object):
 
     def _get_offset(self, size, crop_size):
         if self.mode == "random":
-            return random.randint(0, size - crop_size - 1)
+            return np.random.randint(0, size - crop_size - 1)
         elif self.mode == "center":
             return size // 2 - crop_size // 2
         else:
@@ -131,14 +129,32 @@ class RandomCrop(object):
         return data
 
 
+class RandomInstance(object):
+    def __init__(self, parameters, objects):
+        self.n_instances = (
+            parameters["n_instances"] if "n_instances" in parameters else 1
+        )
+        self.objects = objects
+
+    def __call__(self, data):
+        ins_map = data["ins"] * data["msk"]
+        visible_ins = np.unique(ins_map[ins_map > 0])
+        ins = np.random.choice(visible_ins, self.n_instances, replace=False)
+        ins_mask = np.isin(data["ins"], ins)
+
+        data["msk"] &= ins_mask
+        data["vpm"][~data["msk"]] = -1
+        return data
+
+
 class RemoveUnseenPoints(object):
     def __init__(self, _, objects):
         self.objects = objects
 
     def __call__(self, data):
-        visible_pts = np.unique(data["vpm"])
+        vpm = data["vpm"]
+        visible_pts = np.unique(vpm[vpm != -1])
         data["pts"] = data["pts"][visible_pts]
-        data["pts"] = data["pts"]
         return data
 
 

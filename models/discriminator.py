@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:37:00
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-12 18:57:09
+# @Last Modified at: 2024-03-13 09:41:41
 # @Email:  root@haozhexie.com
 
 import torch
@@ -188,26 +188,34 @@ class Discriminator(torch.nn.Module):
         x.scatter_(1, onehot_idx, 1.0)
         return x
 
-    def _single_forward(self, images, seg_maps):
+    def forward(self, images, seg_maps, masks):
+        # print(images.size())    # torch.Size([1, 3, H, W])
+        # print(seg_maps.size())  # torch.Size([1, n_classes, H, W])
+        # print(masks.size())     # torch.Size([1, 1, H, W])
         # bottom-up pathway
-        feat11 = self.enc1(images)
+        feat11 = self.enc1(images * masks)
+        # print(feat11.size())    # torch.Size([1, 128, H/2, W/2])
         feat12 = self.enc2(feat11)
+        # print(feat12.size())    # torch.Size([1, 256, H/4, W/4])
         feat13 = self.enc3(feat12)
+        # print(feat13.size())    # torch.Size([1, 512, H/8, W/8])
         feat14 = self.enc4(feat13)
+        # print(feat14.size())    # torch.Size([1, 1024, H/16, W/16])
         feat15 = self.enc5(feat14)
+        # print(feat15.size())    # torch.Size([1, 1024, H/32, W/32])
         # top-down pathway and lateral connections
         feat25 = self.lat5(feat15)
+        # print(feat25.size())    # torch.Size([1, 512, H/32, W/32])
         feat24 = self.upsample2x(feat25) + self.lat4(feat14)
+        # print(feat24.size())    # torch.Size([1, 512, H/16, W/16])
         feat23 = self.upsample2x(feat24) + self.lat3(feat13)
+        # print(feat23.size())    # torch.Size([1, 512, H/8, W/8])
         feat22 = self.upsample2x(feat23) + self.lat2(feat12)
+        # print(feat22.size())    # torch.Size([1, 512, H/4, W/4])
         # final prediction layers
         feat32 = self.final2(feat22)
+        # print(feat32.size())    # torch.Size([1, 256, H/4, W/4])
 
-        label_map = self.interpolator(seg_maps, size=feat32.size()[2:])
+        label_map = self.interpolator(seg_maps * masks, size=feat32.size()[2:])
         pred = self.output(feat32)  # N, num_labels + 1, H//4, W//4
         return {"pred": pred, "label": label_map}
-
-    def forward(self, images, seg_maps, masks):
-        # print(seg_maps.size())  # torch.Size([1, 7, H, W])
-        # print(masks.size())  # torch.Size([1, 1, H, W])
-        return self._single_forward(images * masks, seg_maps * masks)

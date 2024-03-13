@@ -4,11 +4,10 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-12 16:54:41
+# @Last Modified at: 2024-03-13 14:44:18
 # @Email:  root@haozhexie.com
 
 import copy
-import cv2
 import numpy as np
 import os
 import torch
@@ -117,6 +116,7 @@ class CitySampleDataset(torch.utils.data.Dataset):
         rgb = np.array(utils.io.IO.get(rendering["rgb"]), dtype=np.float32)
         rgb = rgb / 255.0 * 2 - 1
         seg = np.array(utils.io.IO.get(rendering["seg"]).convert("P"))
+        ins = np.array(utils.io.IO.get(rendering["ins"]))
         pts = utils.io.IO.get(rendering["pts"])
         Rt = Rt[view_idx]
         # Normalize the camera position to fit the scale of the map.
@@ -135,6 +135,7 @@ class CitySampleDataset(torch.utils.data.Dataset):
             "centers": centers,
             "rgb": rgb,
             "seg": seg,
+            "ins": ins,
             "proj/hf": pts["prj"]["TD_HF"],
             "proj/seg": pts["prj"]["SEG"],
             "proj/affmat": pts["prj"]["affmat"],
@@ -169,6 +170,12 @@ class CitySampleDataset(torch.utils.data.Dataset):
                     c,
                     "SemanticImage",
                     "%sSequence.%04d.png" % (c, i),
+                ),
+                "ins": os.path.join(
+                    cfg.DATASETS.CITY_SAMPLE.DIR,
+                    c,
+                    "InstanceImage",
+                    "%04d.png" % i,
                 ),
                 # Projection
                 "proj/hf": os.path.join(
@@ -212,7 +219,14 @@ class CitySampleDataset(torch.utils.data.Dataset):
                             "n_min_pixels": cfg.TRAIN.GAUSSIAN.N_MIN_PIXELS,
                             "n_max_points": cfg.TRAIN.GAUSSIAN.N_MAX_POINTS,
                         },
-                        "objects": ["rgb", "seg", "vpm", "msk"],
+                        "objects": ["rgb", "seg", "ins", "vpm", "msk"],
+                    },
+                    {
+                        "callback": "RandomInstance",
+                        "parameters": {
+                            "n_instances": 1
+                        },
+                        "objects": ["ins", "vpm", "msk"],
                     },
                     {
                         "callback": "RemoveUnseenPoints",
@@ -260,9 +274,16 @@ class CitySampleDataset(torch.utils.data.Dataset):
                         "objects": ["rgb", "ins", "msk"],
                     },
                     {
+                        "callback": "RandomInstance",
+                        "parameters": {
+                            "n_instances": 1
+                        },
+                        "objects": ["ins", "vpm", "msk"],
+                    },
+                    {
                         "callback": "RemoveUnseenPoints",
                         "parameters": None,
-                        "objects": ["pts", "ins"],
+                        "objects": ["pts", "vpm"],
                     },
                     {
                         "callback": "NormalizePointCords",

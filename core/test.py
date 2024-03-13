@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:58:23
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-12 13:51:43
+# @Last Modified at: 2024-03-13 14:17:10
 # @Email:  root@haozhexie.com
 
 import logging
@@ -82,7 +82,8 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
             onehots = utils.helpers.get_one_hot(
                 classes, test_data_loader.dataset.get_n_classes()
             )
-            z = utils.helpers.get_z(instances, cfg.NETWORK.GAUSSIAN.Z_DIM)
+            # z = utils.helpers.get_z(instances, cfg.NETWORK.GAUSSIAN.Z_DIM)
+            z = torch.rand(1, cfg.NETWORK.GAUSSIAN.Z_DIM, device=gaussian_g.device)
             # Points positions at projection maps
             proj_size = test_data_loader.dataset.get_proj_size()
             proj_uv = utils.helpers.get_projection_uv(
