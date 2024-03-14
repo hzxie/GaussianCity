@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-13 18:32:59
+# @Last Modified at: 2024-03-14 18:59:26
 # @Email:  root@haozhexie.com
 
 import copy
@@ -219,15 +219,15 @@ class CitySampleDataset(torch.utils.data.Dataset):
                             "n_min_pixels": cfg.TRAIN.GAUSSIAN.N_MIN_PIXELS,
                             "n_max_points": cfg.TRAIN.GAUSSIAN.N_MAX_POINTS,
                         },
-                        "objects": ["rgb", "seg", "ins", "vpm", "msk"],
+                        "objects": ["rgb", "seg", "vpm", "msk"],
                     },
-                    {
-                        "callback": "RandomInstance",
-                        "parameters": {
-                            "n_instances": 1
-                        },
-                        "objects": ["ins", "vpm", "msk"],
-                    },
+                    # {
+                    #     "callback": "RandomInstance",
+                    #     "parameters": {
+                    #         "n_instances": 1
+                    #     },
+                    #     "objects": ["ins", "vpm", "msk"],
+                    # },
                     {
                         "callback": "RemoveUnseenPoints",
                         "parameters": None,
@@ -273,13 +273,13 @@ class CitySampleDataset(torch.utils.data.Dataset):
                         },
                         "objects": ["rgb", "seg", "vpm", "msk"],
                     },
-                    {
-                        "callback": "RandomInstance",
-                        "parameters": {
-                            "n_instances": 1
-                        },
-                        "objects": ["ins", "vpm", "msk"],
-                    },
+                    # {
+                    #     "callback": "RandomInstance",
+                    #     "parameters": {
+                    #         "n_instances": 1
+                    #     },
+                    #     "objects": ["ins", "vpm", "msk"],
+                    # },
                     {
                         "callback": "RemoveUnseenPoints",
                         "parameters": None,

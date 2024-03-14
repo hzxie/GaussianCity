@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-13 14:38:23
+# @Last Modified at: 2024-03-14 18:59:13
 # @Email:  root@haozhexie.com
 
 import logging
@@ -217,10 +217,12 @@ def train(cfg):
                 utils.helpers.requires_grad(gaussian_d, True)
 
                 with torch.no_grad():
-                    pt_rgbs = gaussian_g(
+                    pt_attrs = gaussian_g(
                         proj_uv, rel_xyz, onehots, z, proj_hf, proj_seg
                     )
-                    gs_pts = utils.helpers.get_gaussian_points(abs_xyz, scales, pt_rgbs)
+                    gs_pts = utils.helpers.get_gaussian_points(
+                        abs_xyz, scales.clone(), pt_attrs
+                    )
                     fake_imgs = utils.helpers.get_gaussian_rasterization(
                         gs_pts,
                         gr,
@@ -251,8 +253,10 @@ def train(cfg):
                 utils.helpers.requires_grad(gaussian_d, False)
                 utils.helpers.requires_grad(gaussian_g, True)
 
-            pt_rgbs = gaussian_g(proj_uv, rel_xyz, onehots, z, proj_hf, proj_seg)
-            gs_pts = utils.helpers.get_gaussian_points(abs_xyz, scales, pt_rgbs)
+            pt_attrs = gaussian_g(proj_uv, rel_xyz, onehots, z, proj_hf, proj_seg)
+            gs_pts = utils.helpers.get_gaussian_points(
+                abs_xyz, scales.clone(), pt_attrs
+            )
             fake_imgs = utils.helpers.get_gaussian_rasterization(
                 gs_pts, gr, data["cam_pos"], data["cam_quat"], data["crp"]
             )

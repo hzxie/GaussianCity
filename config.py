@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-12 18:57:06
+# @Last Modified at: 2024-03-14 19:00:02
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -78,9 +78,10 @@ cfg.NETWORK                                      = EasyDict()
 # Gaussian
 cfg.NETWORK.GAUSSIAN                             = EasyDict()
 cfg.NETWORK.GAUSSIAN.PROJ_ENCODER_OUT_DIM        = 64
-cfg.NETWORK.GAUSSIAN.N_FREQ_BANDS                = 8
+cfg.NETWORK.GAUSSIAN.N_FREQ_BANDS                = 10
 cfg.NETWORK.GAUSSIAN.Z_DIM                       = 256
 cfg.NETWORK.GAUSSIAN.MLP_HIDDEN_DIM              = 512
+cfg.NETWORK.GAUSSIAN.ATTR_FACTORS                = {"xyz": 10, "rgb": 1, "scale": 1, "opacity": 0.5}
 cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE          = 128
 
 #
@@ -95,7 +96,7 @@ cfg.TRAIN.GAUSSIAN.BATCH_SIZE                    = 1
 cfg.TRAIN.GAUSSIAN.EPS                           = 1e-8
 cfg.TRAIN.GAUSSIAN.WEIGHT_DECAY                  = 0
 cfg.TRAIN.GAUSSIAN.BETAS                         = (0.9, 0.999)
-cfg.TRAIN.GAUSSIAN.IMG_CROP_SIZE                 = (224, 224)
+cfg.TRAIN.GAUSSIAN.IMG_CROP_SIZE                 = (448, 448)
 cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_MODEL         = "vgg19"
 cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_LAYERS        = ["relu_3_1", "relu_4_1", "relu_5_1"]
 cfg.TRAIN.GAUSSIAN.PERCEPTUAL_LOSS_WEIGHTS       = [0.125, 0.25, 1.0]
@@ -107,7 +108,7 @@ cfg.TRAIN.GAUSSIAN.CKPT_SAVE_FREQ                = 25
 cfg.TRAIN.GAUSSIAN.GENERATOR                     = EasyDict()
 cfg.TRAIN.GAUSSIAN.GENERATOR.LR                  = 1e-4
 cfg.TRAIN.GAUSSIAN.DISCRIMINATOR                 = EasyDict()
-cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED         = True
+cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED         = False
 cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.LR              = 1e-5
 cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.N_WARMUP_ITERS  = 100000
 

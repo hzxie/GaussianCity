@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-11 15:53:06
+# @Last Modified at: 2024-03-14 14:40:06
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -205,20 +205,28 @@ def get_point_scales(scales, classes, special_z_scale_classes=[]):
     return scales_3d
 
 
-def get_gaussian_points(xyz, scales, rgbs):
+def get_gaussian_points(xyz, scales, attrs):
     batch_size = xyz.size(0)
     n_pts = xyz.size(1)
-    assert rgbs.size(1) == n_pts
-    # rgbs = rgbs[:, :n_pts]
-    opacity = torch.ones((batch_size, n_pts, 1), device=rgbs.device)
+
+    rgb = attrs["rgb"]
+    if "xyz" in attrs:
+        xyz += attrs["xyz"]
+    if "scale" in attrs:
+        scales *= attrs["scale"]
+    if "opacity" in attrs:
+        opacity = attrs["opacity"]
+    else:
+        opacity = torch.ones((batch_size, n_pts, 1), device=xyz.device)
+
     rotations = torch.cat(
         [
-            torch.ones(batch_size, n_pts, 1, device=rgbs.device),
-            torch.zeros(batch_size, n_pts, 3, device=rgbs.device),
+            torch.ones(batch_size, n_pts, 1, device=xyz.device),
+            torch.zeros(batch_size, n_pts, 3, device=xyz.device),
         ],
         dim=-1,
     )
-    return torch.cat((xyz, opacity, scales, rotations, rgbs), dim=-1)
+    return torch.cat((xyz, opacity, scales, rotations, rgb), dim=-1)
 
 
 def get_gaussian_rasterization(
