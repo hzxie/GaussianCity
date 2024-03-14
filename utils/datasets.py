@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-14 18:59:26
+# @Last Modified at: 2024-03-14 19:09:17
 # @Email:  root@haozhexie.com
 
 import copy
@@ -219,7 +219,7 @@ class CitySampleDataset(torch.utils.data.Dataset):
                             "n_min_pixels": cfg.TRAIN.GAUSSIAN.N_MIN_PIXELS,
                             "n_max_points": cfg.TRAIN.GAUSSIAN.N_MAX_POINTS,
                         },
-                        "objects": ["rgb", "seg", "vpm", "msk"],
+                        "objects": ["rgb", "seg", "ins", "vpm", "msk"],
                     },
                     # {
                     #     "callback": "RandomInstance",
@@ -271,7 +271,7 @@ class CitySampleDataset(torch.utils.data.Dataset):
                             "width": cfg.TEST.GAUSSIAN.IMG_CROP_SIZE[0],
                             "mode": "center",
                         },
-                        "objects": ["rgb", "seg", "vpm", "msk"],
+                        "objects": ["rgb", "seg", "ins", "vpm", "msk"],
                     },
                     # {
                     #     "callback": "RandomInstance",

@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-14 19:00:02
+# @Last Modified at: 2024-03-14 19:10:58
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -108,7 +108,7 @@ cfg.TRAIN.GAUSSIAN.CKPT_SAVE_FREQ                = 25
 cfg.TRAIN.GAUSSIAN.GENERATOR                     = EasyDict()
 cfg.TRAIN.GAUSSIAN.GENERATOR.LR                  = 1e-4
 cfg.TRAIN.GAUSSIAN.DISCRIMINATOR                 = EasyDict()
-cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED         = False
+cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED         = True
 cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.LR              = 1e-5
 cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.N_WARMUP_ITERS  = 100000
 

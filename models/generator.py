@@ -222,18 +222,26 @@ class GaussianAttrMLP(torch.nn.Module):
         )
         for k in factors.keys():
             assert k in ["xyz", "rgb", "scale", "opacity"], "Unknwon key: %s" % k
-            setattr(self, "fc_6_%s" % k, ModLinear(
-                hidden_dim,
-                hidden_dim,
-                z_dim,
-                bias=False,
-                mod_bias=True,
-                output_mode=True,
-            ))
-            setattr(self, "fc_out_%s" % k, torch.nn.Linear(
-                hidden_dim,
-                1 if k == "opacity" else 3,
-            ))
+            setattr(
+                self,
+                "fc_6_%s" % k,
+                ModLinear(
+                    hidden_dim,
+                    hidden_dim,
+                    z_dim,
+                    bias=False,
+                    mod_bias=True,
+                    output_mode=True,
+                ),
+            )
+            setattr(
+                self,
+                "fc_out_%s" % k,
+                torch.nn.Linear(
+                    hidden_dim,
+                    1 if k == "opacity" else 3,
+                ),
+            )
 
     def forward(self, pt_feat, onehots, z):
         f = self.fc_1(pt_feat)
