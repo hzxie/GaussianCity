@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:36:52
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-16 16:03:16
+# @Last Modified at: 2024-03-17 07:08:57
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -29,6 +29,7 @@ class Generator(torch.nn.Module):
             cfg.NETWORK.GAUSSIAN.Z_DIM,
             cfg.NETWORK.GAUSSIAN.MLP_HIDDEN_DIM,
             cfg.NETWORK.GAUSSIAN.ATTR_FACTORS,
+            cfg.NETWORK.GAUSSIAN.ATTR_N_LAYERS,
         )
 
     def forward(self, proj_uv, rel_xyz, onehots, z, dpt_pe, proj_hf, proj_seg):
@@ -175,9 +176,10 @@ class SinCosEncoder(torch.nn.Module):
 class GaussianAttrMLP(torch.nn.Module):
     r"""MLP with affine modulation."""
 
-    def __init__(self, n_classes, in_dim, z_dim, hidden_dim, factors={}):
+    def __init__(self, n_classes, in_dim, z_dim, hidden_dim, factors={}, n_layers={}):
         super(GaussianAttrMLP, self).__init__()
         self.factors = factors
+        self.n_layers = n_layers
         self.act = torch.nn.LeakyReLU(negative_slope=0.2)
         self.fc_m_a = torch.nn.Linear(
             n_classes,
@@ -222,18 +224,19 @@ class GaussianAttrMLP(torch.nn.Module):
         )
         for k in factors.keys():
             assert k in ["xyz", "rgb", "scale", "opacity"], "Unknwon key: %s" % k
-            setattr(
-                self,
-                "fc_6_%s" % k,
-                ModLinear(
-                    hidden_dim,
-                    hidden_dim,
-                    z_dim,
-                    bias=False,
-                    mod_bias=True,
-                    output_mode=True,
-                ),
-            )
+            for i in range(n_layers[k]):
+                setattr(
+                    self,
+                    "fc_6_%s_%d" % (k, i),
+                    ModLinear(
+                        hidden_dim,
+                        hidden_dim,
+                        z_dim,
+                        bias=False,
+                        mod_bias=True,
+                        output_mode=True,
+                    ),
+                )
             setattr(
                 self,
                 "fc_out_%s" % k,
@@ -254,16 +257,20 @@ class GaussianAttrMLP(torch.nn.Module):
         f = self.act(self.fc_5(f, z))
         output = {}
         for k in self.factors.keys():
-            fc_6 = getattr(self, "fc_6_%s" % k)
+            _f = f.clone()
+            for i in range(self.n_layers[k]):
+                fc_6 = getattr(self, "fc_6_%s_%d" % (k, i))
+                _f = self.act(fc_6(_f, z))
+
             fc_out = getattr(self, "fc_out_%s" % k)
-            output[k] = fc_out(self.act(fc_6(f, z)))
+            output[k] = fc_out(_f)
 
         if "xyz" in self.factors:
             output["xyz"] = (torch.sigmoid(output["xyz"]) - 0.5) * self.factors["xyz"]
         if "rgb" in self.factors:
             output["rgb"] = output["rgb"] * self.factors["rgb"]
         if "scale" in self.factors:
-            output["scale"] = F.softplus(output["scale"]) * self.factors["scale"]
+            output["scale"] = output["scale"].clamp(1, 1)
         if "opacity" in self.factors:
             output["opacity"] = torch.sigmoid(output["opacity"]) * self.factors[
                 "opacity"
