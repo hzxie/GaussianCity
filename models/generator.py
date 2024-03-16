@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:36:52
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-16 15:27:45
+# @Last Modified at: 2024-03-16 16:03:16
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -31,14 +31,14 @@ class Generator(torch.nn.Module):
             cfg.NETWORK.GAUSSIAN.ATTR_FACTORS,
         )
 
-    def forward(self, proj_uv, rel_xyz, onehots, z, pt_idx, proj_hf, proj_seg):
+    def forward(self, proj_uv, rel_xyz, onehots, z, dpt_pe, proj_hf, proj_seg):
         proj_feat = self.encoder(proj_hf, proj_seg)
         pt_feat = (
             F.grid_sample(proj_feat, proj_uv.unsqueeze(dim=1), align_corners=True)
             .squeeze(dim=2)
             .permute(0, 2, 1)
         )
-        pt_feat = torch.cat([pt_feat, rel_xyz, pt_idx], dim=2)
+        pt_feat = torch.cat([pt_feat, rel_xyz, dpt_pe], dim=2)
         pt_feat = self.pos_encoder(pt_feat)
         # print(pt_feat.size())   # torch.Size([bs, n_pts, 1024]
         return self.ga_mlp(pt_feat, onehots, z)

@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-16 15:33:23
+# @Last Modified at: 2024-03-16 15:53:18
 # @Email:  root@haozhexie.com
 
 import logging
@@ -197,7 +197,7 @@ def train(cfg):
             # Split pts into attributes
             abs_xyz = pts[:, :, :3]
             rel_xyz = pts[:, :, 5:8]
-            pt_idx = pts[:, :, [8]]
+            dup_pt_pe = pts[:, :, [8]]
             instances = pts[:, :, [4]]
             classes = train_dataset.instances_to_classes(instances)
             scales = pts[:, :, [3]] / 2.0
@@ -220,7 +220,7 @@ def train(cfg):
 
                 with torch.no_grad():
                     pt_attrs = gaussian_g(
-                        proj_uv, rel_xyz, onehots, z, pt_idx, proj_hf, proj_seg
+                        proj_uv, rel_xyz, onehots, z, dup_pt_pe, proj_hf, proj_seg
                     )
                     gs_pts = utils.helpers.get_gaussian_points(
                         abs_xyz, scales.clone(), pt_attrs
@@ -255,7 +255,9 @@ def train(cfg):
                 utils.helpers.requires_grad(gaussian_d, False)
                 utils.helpers.requires_grad(gaussian_g, True)
 
-            pt_attrs = gaussian_g(proj_uv, rel_xyz, onehots, z, pt_idx, proj_hf, proj_seg)
+            pt_attrs = gaussian_g(
+                proj_uv, rel_xyz, onehots, z, dup_pt_pe, proj_hf, proj_seg
+            )
             gs_pts = utils.helpers.get_gaussian_points(
                 abs_xyz, scales.clone(), pt_attrs
             )
