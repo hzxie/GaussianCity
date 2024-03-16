@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:58:23
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-16 10:48:04
+# @Last Modified at: 2024-03-16 15:33:13
 # @Email:  root@haozhexie.com
 
 import logging
@@ -62,6 +62,7 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
     for idx, data in enumerate(tqdm(test_data_loader)):
         with torch.no_grad():
             pts = utils.helpers.var_or_cuda(data["pts"], gaussian_g.device)
+            pts = utils.helpers.repeat_pts(pts, cfg.NETWORK.GAUSSIAN.REPEAT_PTS)
             rgb = utils.helpers.var_or_cuda(data["rgb"], gaussian_g.device)
             proj_hf = utils.helpers.var_or_cuda(data["proj/hf"], gaussian_g.device)
             proj_seg = utils.helpers.var_or_cuda(data["proj/seg"], gaussian_g.device)
@@ -73,6 +74,7 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
             # Split pts into attributes
             abs_xyz = pts[:, :, :3]
             rel_xyz = pts[:, :, 5:]
+            pt_idx = pts[:, :, [8]]
             instances = pts[:, :, [4]]
             classes = test_data_loader.dataset.instances_to_classes(instances)
             scales = pts[:, :, [3]] / 2.0
@@ -90,7 +92,7 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
                 abs_xyz, proj_tlp, proj_aff_mat, proj_size
             )
 
-            pt_rgbs = gaussian_g(proj_uv, rel_xyz, onehots, z, proj_hf, proj_seg)
+            pt_rgbs = gaussian_g(proj_uv, rel_xyz, onehots, z, pt_idx, proj_hf, proj_seg)
             gs_pts = utils.helpers.get_gaussian_points(abs_xyz, scales, pt_rgbs)
             fake_imgs = utils.helpers.get_gaussian_rasterization(
                 gs_pts,

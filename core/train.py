@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-16 09:51:14
+# @Last Modified at: 2024-03-16 15:33:23
 # @Email:  root@haozhexie.com
 
 import logging
@@ -182,6 +182,7 @@ def train(cfg):
             torch.cuda.empty_cache()
             # Move data to GPU
             pts = utils.helpers.var_or_cuda(data["pts"], gaussian_g.device)
+            pts = utils.helpers.repeat_pts(pts, cfg.NETWORK.GAUSSIAN.REPEAT_PTS)
             rgb = utils.helpers.var_or_cuda(data["rgb"], gaussian_g.device)
             seg = utils.helpers.var_or_cuda(data["seg"], gaussian_g.device)
             proj_hf = utils.helpers.var_or_cuda(data["proj/hf"], gaussian_g.device)
@@ -195,7 +196,8 @@ def train(cfg):
 
             # Split pts into attributes
             abs_xyz = pts[:, :, :3]
-            rel_xyz = pts[:, :, 5:]
+            rel_xyz = pts[:, :, 5:8]
+            pt_idx = pts[:, :, [8]]
             instances = pts[:, :, [4]]
             classes = train_dataset.instances_to_classes(instances)
             scales = pts[:, :, [3]] / 2.0
@@ -218,7 +220,7 @@ def train(cfg):
 
                 with torch.no_grad():
                     pt_attrs = gaussian_g(
-                        proj_uv, rel_xyz, onehots, z, proj_hf, proj_seg
+                        proj_uv, rel_xyz, onehots, z, pt_idx, proj_hf, proj_seg
                     )
                     gs_pts = utils.helpers.get_gaussian_points(
                         abs_xyz, scales.clone(), pt_attrs
@@ -253,7 +255,7 @@ def train(cfg):
                 utils.helpers.requires_grad(gaussian_d, False)
                 utils.helpers.requires_grad(gaussian_g, True)
 
-            pt_attrs = gaussian_g(proj_uv, rel_xyz, onehots, z, proj_hf, proj_seg)
+            pt_attrs = gaussian_g(proj_uv, rel_xyz, onehots, z, pt_idx, proj_hf, proj_seg)
             gs_pts = utils.helpers.get_gaussian_points(
                 abs_xyz, scales.clone(), pt_attrs
             )

@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-16 10:54:41
+# @Last Modified at: 2024-03-16 15:32:38
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -77,6 +77,7 @@ cfg.WANDB.SYNC_TENSORBOARD                       = False
 cfg.NETWORK                                      = EasyDict()
 # Gaussian
 cfg.NETWORK.GAUSSIAN                             = EasyDict()
+cfg.NETWORK.GAUSSIAN.REPEAT_PTS                  = 2
 cfg.NETWORK.GAUSSIAN.PROJ_ENCODER_OUT_DIM        = 64
 cfg.NETWORK.GAUSSIAN.N_FREQ_BANDS                = 10
 cfg.NETWORK.GAUSSIAN.Z_DIM                       = 256

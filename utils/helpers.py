@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-14 14:40:06
+# @Last Modified at: 2024-03-16 15:19:42
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -162,6 +162,14 @@ def onehot_to_mask(onehot, ignored_classes=[]):
         mask[mask >= ic] += 1
 
     return mask
+
+
+def repeat_pts(pts, repeat=1):
+    b, n, _ = pts.size()
+    pts = pts.repeat(1, repeat, 1)
+    idx = torch.arange(repeat, device=pts.device) / repeat
+    idx = idx.unsqueeze(dim=0).unsqueeze(dim=-1).repeat(b, n, 1)
+    return torch.cat([pts, idx], dim=-1)
 
 
 def get_projection_uv(xyz, proj_tlp, proj_aff_mat, proj_size):

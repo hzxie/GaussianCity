@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:36:52
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-14 18:58:22
+# @Last Modified at: 2024-03-16 15:27:45
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -18,7 +18,7 @@ class Generator(torch.nn.Module):
         self.cfg = cfg
         self.n_classes = n_classes
         self.encoder = ProjectionEncoder(
-            n_classes, cfg.NETWORK.GAUSSIAN.PROJ_ENCODER_OUT_DIM - 3
+            n_classes, cfg.NETWORK.GAUSSIAN.PROJ_ENCODER_OUT_DIM - 4
         )
         self.pos_encoder = SinCosEncoder(cfg.NETWORK.GAUSSIAN.N_FREQ_BANDS)
         self.ga_mlp = GaussianAttrMLP(
@@ -31,14 +31,14 @@ class Generator(torch.nn.Module):
             cfg.NETWORK.GAUSSIAN.ATTR_FACTORS,
         )
 
-    def forward(self, proj_uv, rel_xyz, onehots, z, proj_hf, proj_seg):
+    def forward(self, proj_uv, rel_xyz, onehots, z, pt_idx, proj_hf, proj_seg):
         proj_feat = self.encoder(proj_hf, proj_seg)
         pt_feat = (
             F.grid_sample(proj_feat, proj_uv.unsqueeze(dim=1), align_corners=True)
             .squeeze(dim=2)
             .permute(0, 2, 1)
         )
-        pt_feat = torch.cat([pt_feat, rel_xyz], dim=2)
+        pt_feat = torch.cat([pt_feat, rel_xyz, pt_idx], dim=2)
         pt_feat = self.pos_encoder(pt_feat)
         # print(pt_feat.size())   # torch.Size([bs, n_pts, 1024]
         return self.ga_mlp(pt_feat, onehots, z)
