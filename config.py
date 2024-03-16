@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-14 19:10:58
+# @Last Modified at: 2024-03-16 09:52:08
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -81,7 +81,7 @@ cfg.NETWORK.GAUSSIAN.PROJ_ENCODER_OUT_DIM        = 64
 cfg.NETWORK.GAUSSIAN.N_FREQ_BANDS                = 10
 cfg.NETWORK.GAUSSIAN.Z_DIM                       = 256
 cfg.NETWORK.GAUSSIAN.MLP_HIDDEN_DIM              = 512
-cfg.NETWORK.GAUSSIAN.ATTR_FACTORS                = {"xyz": 10, "rgb": 1, "scale": 1, "opacity": 0.5}
+cfg.NETWORK.GAUSSIAN.ATTR_FACTORS                = {"xyz": 10, "rgb": 1, "opacity": 0.5}
 cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE          = 128
 
 #

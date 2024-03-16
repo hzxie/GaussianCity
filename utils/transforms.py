@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 14:18:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-13 18:46:01
+# @Last Modified at: 2024-03-16 10:24:57
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -143,6 +143,9 @@ class RandomInstance(object):
         if self.range is not None:
             visible_ins = visible_ins[visible_ins >= self.range[0]]
             visible_ins = visible_ins[visible_ins < self.range[1]]
+
+        if len(visible_ins) == 0:
+            return data
 
         ins = np.random.choice(visible_ins, self.n_instances, replace=False)
         ins_mask = np.isin(data["ins"], ins)
