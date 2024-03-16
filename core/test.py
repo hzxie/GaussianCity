@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:58:23
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-16 09:51:42
+# @Last Modified at: 2024-03-16 10:48:04
 # @Email:  root@haozhexie.com
 
 import logging
@@ -102,8 +102,8 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
             loss = l1_loss(fake_imgs, rgb)
             test_losses.update([loss.item()])
 
-            if idx >= cfg.TEST.GAUSSIAN.N_SAMPLES:
-                break
+            if idx % cfg.TEST.GAUSSIAN.TEST_FREQ != 0:
+                continue
 
             if utils.distributed.is_master():
                 key_frames["Image/%04d" % idx] = utils.helpers.tensor_to_image(

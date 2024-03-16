@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-16 09:52:08
+# @Last Modified at: 2024-03-16 10:54:41
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -120,7 +120,7 @@ cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.N_WARMUP_ITERS  = 100000
 cfg.TEST                                         = EasyDict()
 cfg.TEST.GAUSSIAN                                = EasyDict()
 cfg.TEST.GAUSSIAN.DATASET                        = "CITY_SAMPLE"
-cfg.TEST.GAUSSIAN.N_SAMPLES                      = 3
+cfg.TEST.GAUSSIAN.TEST_FREQ                      = 1
 cfg.TEST.GAUSSIAN.IMG_CROP_SIZE                  = (960, 540)
 cfg.TEST.GAUSSIAN.PROJ_CROP_SIZE                 = (4096, 4096)
 # fmt: on

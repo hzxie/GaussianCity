@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-14 19:09:17
+# @Last Modified at: 2024-03-16 10:44:29
 # @Email:  root@haozhexie.com
 
 import copy
@@ -205,7 +205,15 @@ class CitySampleDataset(torch.utils.data.Dataset):
                 else:
                     self.memcached[v] = utils.io.IO.get(v)
 
-        return files if split == "train" else files[-16:]
+        return (
+            files
+            if split == "train"
+            else [
+                f
+                for f in files
+                if f["name"].endswith("000") or f["name"].endswith("500")
+            ]
+        )
 
     def _get_data_transforms(self, cfg, split):
         if split == "train":
