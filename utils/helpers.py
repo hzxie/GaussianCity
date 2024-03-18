@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-16 15:19:42
+# @Last Modified at: 2024-03-18 16:16:35
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -134,16 +134,20 @@ def get_one_hot(classes, n_class):
 
 def get_z(instances, z_dim):
     b, n, c = instances.size()
-    assert c == 1, "Unexpected tensor shape (%d, %d)" % (n, c)
+    assert b == 1 and c == 1, "Unexpected tensor shape (%d, %d, %d)" % (b, n, c)
 
     unique_instances = [i.item() for i in torch.unique(instances).short()]
     unique_z = {
-        ui: torch.rand(1, z_dim).to(instances.device) for ui in unique_instances
+        ui: torch.ones(1, z_dim).to(instances.device) for ui in unique_instances
     }
 
-    z = torch.zeros(b, n, z_dim).to(instances.device)
+    z = {}
     for ui in unique_instances:
-        z[instances[..., 0] == ui] = unique_z[ui]
+        idx = instances[..., 0] == ui
+        z[ui] = {
+            "z": unique_z[ui],
+            "idx": idx,
+        }
     return z
 
 

@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:58:23
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-16 16:03:08
+# @Last Modified at: 2024-03-18 16:38:14
 # @Email:  root@haozhexie.com
 
 import logging
@@ -77,15 +77,14 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
             dup_pt_pe = pts[:, :, [8]]
             instances = pts[:, :, [4]]
             classes = test_data_loader.dataset.instances_to_classes(instances)
-            scales = pts[:, :, [3]] / 2.0
+            scales = pts[:, :, [3]] * cfg.NETWORK.GAUSSIAN.SCALE_FACTOR
             scales = utils.helpers.get_point_scales(
                 scales, classes, test_data_loader.dataset.get_special_z_scale_classes()
             )
             onehots = utils.helpers.get_one_hot(
                 classes, test_data_loader.dataset.get_n_classes()
             )
-            # z = utils.helpers.get_z(instances, cfg.NETWORK.GAUSSIAN.Z_DIM)
-            z = torch.rand(1, cfg.NETWORK.GAUSSIAN.Z_DIM, device=gaussian_g.device)
+            z = utils.helpers.get_z(instances, cfg.NETWORK.GAUSSIAN.Z_DIM)
             # Points positions at projection maps
             proj_size = test_data_loader.dataset.get_proj_size()
             proj_uv = utils.helpers.get_projection_uv(

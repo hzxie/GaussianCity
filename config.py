@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-17 22:33:03
+# @Last Modified at: 2024-03-18 16:43:00
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -77,13 +77,14 @@ cfg.WANDB.SYNC_TENSORBOARD                       = False
 cfg.NETWORK                                      = EasyDict()
 # Gaussian
 cfg.NETWORK.GAUSSIAN                             = EasyDict()
-cfg.NETWORK.GAUSSIAN.REPEAT_PTS                  = 2
+cfg.NETWORK.GAUSSIAN.SCALE_FACTOR                = 0.33
+cfg.NETWORK.GAUSSIAN.REPEAT_PTS                  = 4
 cfg.NETWORK.GAUSSIAN.PROJ_ENCODER_OUT_DIM        = 64
 cfg.NETWORK.GAUSSIAN.N_FREQ_BANDS                = 10
 cfg.NETWORK.GAUSSIAN.Z_DIM                       = 256
 cfg.NETWORK.GAUSSIAN.MLP_HIDDEN_DIM              = 512
-cfg.NETWORK.GAUSSIAN.ATTR_FACTORS                = {"xyz": 10, "rgb": 1, "scale": 1, "opacity": 0.5}
-cfg.NETWORK.GAUSSIAN.ATTR_N_LAYERS               = {"xyz": 1, "rgb": 1, "scale": 4, "opacity": 1}
+cfg.NETWORK.GAUSSIAN.ATTR_FACTORS                = {"xyz": 40, "rgb": 1, "opacity": 0.5}
+cfg.NETWORK.GAUSSIAN.ATTR_N_LAYERS               = {"xyz": 1, "rgb": 1, "opacity": 1}
 cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE          = 128
 
 #

@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:36:52
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-17 07:08:57
+# @Last Modified at: 2024-03-18 16:39:28
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -246,11 +246,27 @@ class GaussianAttrMLP(torch.nn.Module):
                 ),
             )
 
-    def forward(self, pt_feat, onehots, z):
+    def forward(self, pt_feat, onehots, zs):
+        b, n, _ = pt_feat.size()
+
         f = self.fc_1(pt_feat)
         f = f + self.fc_m_a(onehots)
-
         f = self.act(f)
+
+        output = {
+            k: torch.zeros(b, n, 1 if k == "opacity" else 3, device=pt_feat.device)
+            for k in self.factors.keys()
+        }
+        for v in zs.values():
+            z = v["z"]
+            idx = v["idx"]
+            _output = self._instance_forward(f[idx].unsqueeze(dim=0), z)
+            for k, v in _output.items():
+                output[k][idx] = v
+
+        return output
+
+    def _instance_forward(self, f, z):
         f = self.act(self.fc_2(f, z))
         f = self.act(self.fc_3(f, z))
         f = self.act(self.fc_4(f, z))
@@ -270,7 +286,7 @@ class GaussianAttrMLP(torch.nn.Module):
         if "rgb" in self.factors:
             output["rgb"] = output["rgb"] * self.factors["rgb"]
         if "scale" in self.factors:
-            output["scale"] = output["scale"].clamp(1, 1)
+            output["scale"] = 1 + output["scale"].clamp(-1, 1) * self.factors["scale"]
         if "opacity" in self.factors:
             output["opacity"] = torch.sigmoid(output["opacity"]) * self.factors[
                 "opacity"
@@ -360,7 +376,6 @@ class ModLinear(torch.nn.Module):
         alpha = self._linear_f(z, self.weight_alpha, self.bias_alpha)  # [B, ..., I]
         w = self.weight.to(x.dtype)  # [O I]
         w = w.unsqueeze(0) * alpha
-        # w = alpha @ w  # [B, ..., O]
 
         if self.mod_bias:
             beta = self._linear_f(z, self.weight_beta, self.bias_beta)  # [B, ..., I]
@@ -379,10 +394,8 @@ class ModLinear(torch.nn.Module):
         # [B ? I] @ [B I O] = [B ? O]
         if b is not None:
             x = torch.baddbmm(b, x, w.transpose(1, 2))
-            # x = x * w + b
         else:
             x = x.bmm(w.transpose(1, 2))
-            # x = x * w
 
         x = x.reshape(*x_shape[:-1], x.shape[-1])
         return x
