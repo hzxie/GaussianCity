@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:36:52
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-18 16:39:28
+# @Last Modified at: 2024-03-18 18:55:36
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -28,6 +28,7 @@ class Generator(torch.nn.Module):
             * cfg.NETWORK.GAUSSIAN.N_FREQ_BANDS,
             cfg.NETWORK.GAUSSIAN.Z_DIM,
             cfg.NETWORK.GAUSSIAN.MLP_HIDDEN_DIM,
+            cfg.NETWORK.GAUSSIAN.MLP_N_SHARED_LAYERS,
             cfg.NETWORK.GAUSSIAN.ATTR_FACTORS,
             cfg.NETWORK.GAUSSIAN.ATTR_N_LAYERS,
         )
@@ -176,7 +177,7 @@ class SinCosEncoder(torch.nn.Module):
 class GaussianAttrMLP(torch.nn.Module):
     r"""MLP with affine modulation."""
 
-    def __init__(self, n_classes, in_dim, z_dim, hidden_dim, factors={}, n_layers={}):
+    def __init__(self, n_classes, in_dim, z_dim, hidden_dim, n_shared_layers, factors={}, n_layers={}):
         super(GaussianAttrMLP, self).__init__()
         self.factors = factors
         self.n_layers = n_layers
@@ -190,44 +191,25 @@ class GaussianAttrMLP(torch.nn.Module):
             in_dim,
             hidden_dim,
         )
-        self.fc_2 = ModLinear(
-            hidden_dim,
-            hidden_dim,
-            z_dim,
-            bias=False,
-            mod_bias=True,
-            output_mode=True,
-        )
-        self.fc_3 = ModLinear(
-            hidden_dim,
-            hidden_dim,
-            z_dim,
-            bias=False,
-            mod_bias=True,
-            output_mode=True,
-        )
-        self.fc_4 = ModLinear(
-            hidden_dim,
-            hidden_dim,
-            z_dim,
-            bias=False,
-            mod_bias=True,
-            output_mode=True,
-        )
-        self.fc_5 = ModLinear(
-            hidden_dim,
-            hidden_dim,
-            z_dim,
-            bias=False,
-            mod_bias=True,
-            output_mode=True,
-        )
+        for i in range(2, n_shared_layers + 1):
+            setattr(
+                self,
+                "fc_%d" % i,
+                ModLinear(
+                    hidden_dim,
+                    hidden_dim,
+                    z_dim,
+                    bias=False,
+                    mod_bias=True,
+                    output_mode=True,
+                ),
+            )
         for k in factors.keys():
             assert k in ["xyz", "rgb", "scale", "opacity"], "Unknwon key: %s" % k
             for i in range(n_layers[k]):
                 setattr(
                     self,
-                    "fc_6_%s_%d" % (k, i),
+                    "fc_%d_%s_%d" % (n_shared_layers + 1, k, i),
                     ModLinear(
                         hidden_dim,
                         hidden_dim,
