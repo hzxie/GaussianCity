@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-16 15:53:18
+# @Last Modified at: 2024-03-17 22:57:27
 # @Email:  root@haozhexie.com
 
 import logging
@@ -116,8 +116,8 @@ def train(cfg):
     init_epoch = 0
     if "CKPT" in cfg.CONST:
         logging.info("Recovering from %s ..." % (cfg.CONST.CKPT))
-        init_epoch = checkpoint["epoch_index"]
         checkpoint = torch.load(cfg.CONST.CKPT, map_location=gaussian_g.device)
+        # init_epoch = checkpoint["epoch_index"]
         gaussian_g.load_state_dict(checkpoint["gaussian_g"])
         if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
             gaussian_d.load_state_dict(checkpoint["gaussian_d"])
