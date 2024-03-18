@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:36:52
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-18 18:55:36
+# @Last Modified at: 2024-03-18 19:22:09
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -177,10 +177,20 @@ class SinCosEncoder(torch.nn.Module):
 class GaussianAttrMLP(torch.nn.Module):
     r"""MLP with affine modulation."""
 
-    def __init__(self, n_classes, in_dim, z_dim, hidden_dim, n_shared_layers, factors={}, n_layers={}):
+    def __init__(
+        self,
+        n_classes,
+        in_dim,
+        z_dim,
+        hidden_dim,
+        n_shared_layers,
+        factors={},
+        n_layers={},
+    ):
         super(GaussianAttrMLP, self).__init__()
         self.factors = factors
         self.n_layers = n_layers
+        self.n_shared_layers = n_shared_layers
         self.act = torch.nn.LeakyReLU(negative_slope=0.2)
         self.fc_m_a = torch.nn.Linear(
             n_classes,
@@ -234,7 +244,6 @@ class GaussianAttrMLP(torch.nn.Module):
         f = self.fc_1(pt_feat)
         f = f + self.fc_m_a(onehots)
         f = self.act(f)
-
         output = {
             k: torch.zeros(b, n, 1 if k == "opacity" else 3, device=pt_feat.device)
             for k in self.factors.keys()
@@ -249,16 +258,16 @@ class GaussianAttrMLP(torch.nn.Module):
         return output
 
     def _instance_forward(self, f, z):
-        f = self.act(self.fc_2(f, z))
-        f = self.act(self.fc_3(f, z))
-        f = self.act(self.fc_4(f, z))
-        f = self.act(self.fc_5(f, z))
+        for i in range(2, self.n_shared_layers + 1):
+            fc = getattr(self, "fc_%d" % i)
+            f = self.act(fc(f, z))
+
         output = {}
         for k in self.factors.keys():
             _f = f.clone()
             for i in range(self.n_layers[k]):
-                fc_6 = getattr(self, "fc_6_%s_%d" % (k, i))
-                _f = self.act(fc_6(_f, z))
+                _fc = getattr(self, "fc_%d_%s_%d" % (self.n_shared_layers + 1, k, i))
+                _f = self.act(_fc(_f, z))
 
             fc_out = getattr(self, "fc_out_%s" % k)
             output[k] = fc_out(_f)

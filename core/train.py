@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-18 18:57:21
+# @Last Modified at: 2024-03-18 19:24:44
 # @Email:  root@haozhexie.com
 
 import logging
@@ -366,7 +366,6 @@ def train(cfg):
                 "cfg": cfg,
                 "epoch_index": epoch_idx,
                 "gaussian_g": gaussian_g.state_dict(),
-                "gaussian_d": gaussian_d.state_dict(),
             }
             if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
                 ckpt["gaussian_d"] = gaussian_d.state_dict()
