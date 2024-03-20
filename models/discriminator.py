@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:37:00
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-13 09:41:41
+# @Last Modified at: 2024-03-19 07:51:43
 # @Email:  root@haozhexie.com
 
 import torch
@@ -74,19 +74,19 @@ class Discriminator(torch.nn.Module):
             torch.nn.LeakyReLU(0.2),
         )
         # self.enc5 = down_conv2d_block(8 * num_filters, 8 * num_filters)  # 63
-        self.enc5 = torch.nn.Sequential(
-            torch.nn.utils.spectral_norm(
-                torch.nn.Conv2d(
-                    8 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
-                    8 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
-                    stride=2,
-                    kernel_size=3,
-                    padding=1,
-                    bias=True,
-                )
-            ),
-            torch.nn.LeakyReLU(0.2),
-        )
+        # self.enc5 = torch.nn.Sequential(
+        #     torch.nn.utils.spectral_norm(
+        #         torch.nn.Conv2d(
+        #             8 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
+        #             8 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
+        #             stride=2,
+        #             kernel_size=3,
+        #             padding=1,
+        #             bias=True,
+        #         )
+        #     ),
+        #     torch.nn.LeakyReLU(0.2),
+        # )
         # top-down pathway
         # latent_conv2d_block = Conv2dBlock, stride=1, kernel=1, weight_norm=spectral
         # self.lat2 = latent_conv2d_block(2 * num_filters, 4 * num_filters)
@@ -116,18 +116,18 @@ class Discriminator(torch.nn.Module):
             torch.nn.LeakyReLU(0.2),
         )
         # self.lat4 = latent_conv2d_block(8 * num_filters, 4 * num_filters)
-        self.lat4 = torch.nn.Sequential(
-            torch.nn.utils.spectral_norm(
-                torch.nn.Conv2d(
-                    8 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
-                    4 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
-                    stride=1,
-                    kernel_size=1,
-                    bias=True,
-                )
-            ),
-            torch.nn.LeakyReLU(0.2),
-        )
+        # self.lat4 = torch.nn.Sequential(
+        #     torch.nn.utils.spectral_norm(
+        #         torch.nn.Conv2d(
+        #             8 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
+        #             4 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
+        #             stride=1,
+        #             kernel_size=1,
+        #             bias=True,
+        #         )
+        #     ),
+        #     torch.nn.LeakyReLU(0.2),
+        # )
         # self.lat5 = latent_conv2d_block(8 * num_filters, 4 * num_filters)
         self.lat5 = torch.nn.Sequential(
             torch.nn.utils.spectral_norm(
@@ -201,12 +201,12 @@ class Discriminator(torch.nn.Module):
         # print(feat13.size())    # torch.Size([1, 512, H/8, W/8])
         feat14 = self.enc4(feat13)
         # print(feat14.size())    # torch.Size([1, 1024, H/16, W/16])
-        feat15 = self.enc5(feat14)
+        # feat15 = self.enc5(feat14)
         # print(feat15.size())    # torch.Size([1, 1024, H/32, W/32])
         # top-down pathway and lateral connections
-        feat25 = self.lat5(feat15)
-        # print(feat25.size())    # torch.Size([1, 512, H/32, W/32])
-        feat24 = self.upsample2x(feat25) + self.lat4(feat14)
+        feat24 = self.lat5(feat14)
+        # print(feat25.size())    # torch.Size([1, 512, H/16, W/16])
+        # feat24 = self.upsample2x(feat25) + self.lat4(feat14)
         # print(feat24.size())    # torch.Size([1, 512, H/16, W/16])
         feat23 = self.upsample2x(feat24) + self.lat3(feat13)
         # print(feat23.size())    # torch.Size([1, 512, H/8, W/8])
