@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-18 18:44:04
+# @Last Modified at: 2024-03-20 09:43:17
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -69,6 +69,7 @@ cfg.WANDB.PROJECT                                = "GaussianCity"
 cfg.WANDB.ENTITY                                 = "haozhexie"
 cfg.WANDB.MODE                                   = "online"
 cfg.WANDB.RUN_ID                                 = None
+cfg.WANDB.LOG_CODE                               = True
 cfg.WANDB.SYNC_TENSORBOARD                       = False
 
 #

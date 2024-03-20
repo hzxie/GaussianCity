@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2020-04-19 12:52:36
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-28 16:39:57
+# @Last Modified at: 2024-03-20 09:38:29
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -37,8 +37,17 @@ class SummaryWriter(object):
                 mode=cfg.WANDB.MODE,
                 resume="allow",
             )
+            if cfg.WANDB.LOG_CODE:
+                wandb.run.log_code(os.path.join(os.path.dirname(__file__), os.path.pardir))
         else:
             self.writer = torch.utils.tensorboard.SummaryWriter(cfg.DIR.LOGS)
+
+    def add_config(self, cfg):
+        if isinstance(self.writer, torch.utils.tensorboard.writer.SummaryWriter):
+            logging.warning("TensorBoard does not support adding config.")
+        else:
+            for k, v in cfg.items():
+                self.writer.config[k] = v
 
     def add_scalars(self, scalars, step=None):
         if isinstance(self.writer, torch.utils.tensorboard.writer.SummaryWriter):
