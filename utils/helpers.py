@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-18 18:58:52
+# @Last Modified at: 2024-03-21 16:28:44
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -116,10 +116,11 @@ def get_ins_colors(obj, random=True):
     # NOTE: The obj can be a seg_map or ptcloud.
     # If random is True, the instance colors are randomly generated.
     # Otherwise, it will be generated based on the object index.
+    N_MAX_INSTANCES = 16384
     return (
-        get_ins_seg_map.r_palatte[obj].astype(np.uint8)
+        get_ins_seg_map.r_palatte[obj % N_MAX_INSTANCES].astype(np.uint8)
         if random
-        else get_ins_seg_map.f_palatte[obj].astype(np.uint8)
+        else get_ins_seg_map.f_palatte[obj % N_MAX_INSTANCES].astype(np.uint8)
     )
 
 

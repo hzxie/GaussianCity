@@ -3,7 +3,7 @@
  * @Author: Haozhe Xie
  * @Date:   2024-02-12 13:07:49
  * @Last Modified by: Haozhe Xie
- * @Last Modified at: 2024-02-19 11:05:15
+ * @Last Modified at: 2024-03-21 20:34:42
  * @Email:  root@haozhexie.com
  *
  * References:
@@ -12,14 +12,6 @@
 
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #define N_DIM 5
-#define CAR_SEMANTIC_ID 3
-#define BLDG_FACADE_SEMANTIC_ID 7
-#define BLDG_ROOF_SEMANTIC_ID 8
-#define BLDG_INS_MIN_ID 100
-#define ROOF_INS_OFFSET 1
-#define CAR_INS_MIN_ID 5000
-
-#include <iostream>
 
 #include <cassert>
 #include <cmath>
@@ -91,14 +83,15 @@ inline size_t getArrayIndex(short rowIdx, short colIdx, short nCols) {
   return rowIdx * nCols + colIdx;
 }
 
-inline short getSemanticID(short instanceID) {
-  if (instanceID < BLDG_INS_MIN_ID) {
+inline short getSemanticID(short instanceID,
+                           const std::map<std::string, short> &segInsMap) {
+  if (instanceID < segInsMap.at("BLDG_INS_MIN_ID")) {
     return instanceID;
-  } else if (instanceID >= CAR_INS_MIN_ID) {
-    return CAR_SEMANTIC_ID;
+  } else if (instanceID >= segInsMap.at("CAR_INS_MIN_ID")) {
+    return segInsMap.at("CAR_SEMANTIC_ID");
   } else {
     // WARN: The semantic labels for buildings would be merged to facade.
-    return BLDG_FACADE_SEMANTIC_ID;
+    return segInsMap.at("BLDG_FACADE_SEMANTIC_ID");
   }
 }
 
@@ -108,12 +101,12 @@ inline bool isNeighboringValueSame(const short *map, short x, short y,
   // For the next point, the index is x/y + scale instead of x/y + 1.
   short c_value = map[getArrayIndex(y, x, width)];
   std::array<short, 8> nbr_values{
-      map[getArrayIndex(y - 1, x - 1, width)],
-      map[getArrayIndex(y - 1, x, width)],
-      map[getArrayIndex(y - 1, x + 1, width)],
-      map[getArrayIndex(y, x - 1, width)],
+      map[getArrayIndex(y - scale, x - scale, width)],
+      map[getArrayIndex(y - scale, x, width)],
+      map[getArrayIndex(y - scale, x + scale, width)],
+      map[getArrayIndex(y, x - scale, width)],
       map[getArrayIndex(y, x + scale, width)],
-      map[getArrayIndex(y + scale, x - 1, width)],
+      map[getArrayIndex(y + scale, x - scale, width)],
       map[getArrayIndex(y + scale, x, width)],
       map[getArrayIndex(y + scale, x + scale, width)],
   };
@@ -129,7 +122,7 @@ inline bool isBorder(short x, short y, short z, short height, short width,
                      short scale, bool incBtmPts, const short *segMap,
                      const short *tpDwnHgtFld, const short *btmUpHgtFld) {
   int idx = getArrayIndex(y, x, width);
-  if (z == tpDwnHgtFld[idx] || (z == btmUpHgtFld[idx] && incBtmPts)) {
+  if (z > tpDwnHgtFld[idx] - scale || (z == btmUpHgtFld[idx] && incBtmPts)) {
     return true;
   }
   if (x == 0 || x >= width - scale - 1 || y == 0 || y >= height - scale - 1) {
@@ -143,15 +136,16 @@ static PyObject *getPointsFromProjection(PyObject *self, PyObject *args) {
   PyObject *pyIncBtmPts;
   PyObject *pyClasses;
   PyObject *pyScales;
+  PyObject *pySegInsMap;
   PyArrayObject *pySegMap;
   PyArrayObject *pyTpDwnHgtFld;
   PyArrayObject *pyBtmUpHgtFld;
   PyArrayObject *pyPtsMap;
-  if (!PyArg_ParseTuple(args, "O!O!O!O!O!O!O!", &PyBool_Type, &pyIncBtmPts,
+  if (!PyArg_ParseTuple(args, "O!O!O!O!O!O!O!O!", &PyBool_Type, &pyIncBtmPts,
                         &PyDict_Type, &pyClasses, &PyDict_Type, &pyScales,
-                        &PyArray_Type, &pySegMap, &PyArray_Type, &pyTpDwnHgtFld,
-                        &PyArray_Type, &pyBtmUpHgtFld, &PyArray_Type,
-                        &pyPtsMap)) {
+                        &PyDict_Type, &pySegInsMap, &PyArray_Type, &pySegMap,
+                        &PyArray_Type, &pyTpDwnHgtFld, &PyArray_Type,
+                        &pyBtmUpHgtFld, &PyArray_Type, &pyPtsMap)) {
     return NULL;
   }
 
@@ -161,6 +155,8 @@ static PyObject *getPointsFromProjection(PyObject *self, PyObject *args) {
       getMapFromPyObject<short, std::string>(pyClasses, 0, std::string());
   auto scales =
       getMapFromPyObject<std::string, short>(pyScales, std::string(), 0);
+  auto segInsMap =
+      getMapFromPyObject<std::string, short>(pySegInsMap, std::string(), 0);
 
   npy_intp *mapSize = PyArray_SHAPE(pyPtsMap);
   short height = mapSize[0], width = mapSize[1];
@@ -184,8 +180,9 @@ static PyObject *getPointsFromProjection(PyObject *self, PyObject *args) {
       }
 
       short instanceID = segMap[idx];
-      short semanticID = getSemanticID(instanceID);
+      short semanticID = getSemanticID(instanceID, segInsMap);
       short scale = scales[classes[semanticID]];
+
       for (short k = btmUpHgtFld[idx]; k <= tpDwnHgtFld[idx]; k += scale) {
         // Make all objects hallow
         if (!isBorder(j, i, k, height, width, scale, incBtmPts, segMap,
@@ -193,8 +190,9 @@ static PyObject *getPointsFromProjection(PyObject *self, PyObject *args) {
           continue;
         }
         // Building Roof Handler (Recover roof instance ID)
-        if (k == tpDwnHgtFld[idx] && semanticID == BLDG_FACADE_SEMANTIC_ID) {
-          instanceID += ROOF_INS_OFFSET;
+        if (k > tpDwnHgtFld[idx] - scale &&
+            semanticID == segInsMap.at("BLDG_FACADE_SEMANTIC_ID")) {
+          instanceID += segInsMap.at("ROOF_INS_OFFSET");
         }
         points.push_back({j, i, k, scale, instanceID});
       }

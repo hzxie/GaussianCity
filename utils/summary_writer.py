@@ -38,7 +38,9 @@ class SummaryWriter(object):
                 resume="allow",
             )
             if cfg.WANDB.LOG_CODE:
-                wandb.run.log_code(os.path.join(os.path.dirname(__file__), os.path.pardir))
+                wandb.run.log_code(
+                    os.path.join(os.path.dirname(__file__), os.path.pardir)
+                )
         else:
             self.writer = torch.utils.tensorboard.SummaryWriter(cfg.DIR.LOGS)
 
