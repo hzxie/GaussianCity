@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-21 20:34:18
+# @Last Modified at: 2024-03-23 19:04:17
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -73,7 +73,7 @@ SCALES = {
         "SKY": 50,
         "ZONE": 10,
         "BLDG_FACADE": 3,
-        "BLDG_ROOF": 3,
+        "BLDG_ROOF": 5,
     },
     "GOOGLE_EARTH": {
         "ROAD": 10,
@@ -90,17 +90,20 @@ CONSTANTS = {
         "SCALE": 20,  # 5x -> 1m (100 cm): 5 pixels
         "WATER_Z": -17.5,
         "MAP_SIZE": 24576,
+        "PATCH_SIZE": 5000,
         "IMAGE_WIDTH": 1920,
         "IMAGE_HEIGHT": 1080,
         "CAR_INS_MIN_ID": 5000,
     },
     "GOOGLE_EARTH": {
+        "SCALE": 1,
+        "MAP_SIZE": 2048,
+        "PATCH_SIZE": 2048,
         "IMAGE_WIDTH": 960,
         "IMAGE_HEIGHT": 540,
     },
     "ROOF_INS_OFFSET": 1,
     "LOCAL_MAP_SIZE": 2048,
-    "PATCH_SIZE": 5000,
     "BLDG_INS_MIN_ID": 100,
 }
 
@@ -311,9 +314,7 @@ def _get_google_earth_projections(city_dir, osm_dir):
             osm_metadata,
         ) = _get_google_earth_projections.osm[city_name]
     else:
-        td_hf, seg_map, ins_map, osm_metadata = _get_osm_data(
-            osm_dir, city_name
-        )
+        td_hf, seg_map, ins_map, osm_metadata = _get_osm_data(osm_dir, city_name)
         bu_hf = np.zeros_like(td_hf)
         pts_map = _get_point_maps(
             seg_map, CLASSES["GOOGLE_EARTH"], SCALES["GOOGLE_EARTH"]
@@ -739,10 +740,10 @@ def _get_points_from_projection(
     return points.astype(np.int16) if points is not None else None
 
 
-def get_sky_points(far_plane, cam_z, cam_fov_y, scale, class_id):
+def get_sky_points(far_plane, cam_z, cam_fov_y, patch_size, scale, class_id):
     points = []
     # Determine the border of sky
-    sky_height = CONSTANTS["PATCH_SIZE"] * math.tan(cam_fov_y)
+    sky_height = patch_size * math.tan(cam_fov_y)
     z_min = math.floor(max(0, cam_z - sky_height))
     z_max = math.ceil(cam_z + sky_height)
     dist = np.linalg.norm(far_plane[0] - far_plane[1])
@@ -776,8 +777,10 @@ def _get_volume(points, scales):
     # Generate an empty 3D volume
     w, h, d = x_max - x_min + 1, y_max - y_min + 1, z_max - z_min + 2
     # Generate point IDs
+    # NOTE: The point IDs start from 1 to avoid the conflict with the NULL class.
+    assert points.shape[0] < 2147483648
     pt_ids = torch.arange(
-        points.shape[0], dtype=torch.int32, device=points.device
+        start=1, end=points.shape[0] + 1, dtype=torch.int32, device=points.device
     ).unsqueeze(dim=1)
     volume = extensions.voxlib.points_to_volume(
         points.contiguous(), pt_ids, scales, h, w, d
@@ -822,10 +825,12 @@ def _get_ray_voxel_intersection(cam_rig, cam_position, cam_look_at, volume):
     del volume
     torch.cuda.empty_cache()
 
-    return voxel_id.squeeze()
+    # NOTE: The point ID for NULL class is -1, the rest point IDs are from 0 to N - 1.
+    # The ray_voxel_intersection_perspective seems not accepting the negative values.
+    return voxel_id.squeeze() - 1
 
 
-def get_visible_points(points, scales, cam_rig, cam_pos, cam_quat):
+def get_visible_points(points, scales, cam_rig, cam_pos, cam_quat, null_class_id):
     # NOTE: Each point is assigned with a unique ID. The values in the rendered map
     # denotes the visibility of the points. The values are the same as the point IDs.
     instances = torch.from_numpy(points[:, 4]).cuda()
@@ -851,6 +856,8 @@ def get_visible_points(points, scales, cam_rig, cam_pos, cam_quat):
 
     # Generate the instance segmentation map as a side product
     ins_map = instances[vp_map]
+    null_mask = vp_map == -1
+    ins_map[null_mask] = null_class_id
     # Image.fromarray(
     #     utils.helpers.get_ins_seg_map.r_palatte[ins_map.cpu().numpy()],
     # ).save("output/test.jpg")
@@ -872,8 +879,8 @@ def main(dataset, data_dir, osm_dir, seg_map_file_pattern, gpus, is_debug):
         dump_projections(projections, proj_dir, is_debug)
 
         # # Debug: Load projection caches without computing
-        with open("/tmp/projections.pkl", "wb") as fp:
-            pickle.dump(projections, fp)
+        # with open("/tmp/projections.pkl", "wb") as fp:
+        #     pickle.dump(projections, fp)
         # logging.info("loading projections...")
         # proj_dir = os.path.join(city_dir, "Projection")
         # projections = load_projections(proj_dir)
@@ -904,18 +911,18 @@ def main(dataset, data_dir, osm_dir, seg_map_file_pattern, gpus, is_debug):
             if "CAR" in CLASSES[dataset]
             else 32767,
         }
-        # Debug: Generate all initial points (casues OOM in rasterization)
-        logging.info("Generate the initial points for the whole city...")
-        # points[:, M] -> 0:3: XYZ, 3: Scale, 4: Instance ID
-        points = get_points_from_projections(
-            projections, CLASSES[dataset], SCALES[dataset], seg_ins_map
-        )
+        # # Debug: Generate all initial points (casues OOM in rasterization)
+        # logging.info("Generate the initial points for the whole city...")
+        # # points[:, M] -> 0:3: XYZ, 3: Scale, 4: Instance ID
+        # points = get_points_from_projections(
+        #     projections, CLASSES[dataset], SCALES[dataset], seg_ins_map
+        # )
 
         # # Debug: Point Cloud Visualization
-        logging.info("Saving the generated point cloud...")
-        xyz = points[:, :3]
-        rgbs = utils.helpers.get_ins_colors(points[:, 4])
-        utils.helpers.dump_ptcloud_ply("/tmp/points.ply", xyz, rgbs)
+        # logging.info("Saving the generated point cloud...")
+        # xyz = points[:, :3]
+        # rgbs = utils.helpers.get_ins_colors(points[:, 4])
+        # utils.helpers.dump_ptcloud_ply("/tmp/points.ply", xyz, rgbs)
 
         # Load camera parameters
         cam_rig, cam_poses = get_camera_parameters(dataset, city_dir)
@@ -932,46 +939,61 @@ def main(dataset, data_dir, osm_dir, seg_map_file_pattern, gpus, is_debug):
         )
 
         city_points_dir = os.path.join(city_dir, "Points")
+        city_instance_map_dir = os.path.join(city_dir, "InstanceImage")
         os.makedirs(city_points_dir, exist_ok=True)
+        os.makedirs(city_instance_map_dir, exist_ok=True)
         for r in tqdm(cam_poses, desc="Rendering Gaussian Points"):
             cam_quat = np.array([r["qx"], r["qy"], r["qz"], r["qw"]], dtype=np.float32)
             cam_pos = (
                 np.array([r["tx"], r["ty"], r["tz"]], dtype=np.float32)
-                / CONSTANTS["SCALE"]
+                / CONSTANTS[dataset]["SCALE"]
             )
-            cam_pos[0] += CONSTANTS["MAP_SIZE"] // 2
-            cam_pos[1] += CONSTANTS["MAP_SIZE"] // 2
+            cam_pos[0] += CONSTANTS[dataset]["MAP_SIZE"] // 2
+            cam_pos[1] += CONSTANTS[dataset]["MAP_SIZE"] // 2
             cam_look_at = utils.helpers.get_camera_look_at(cam_pos, cam_quat)
             logging.debug("Current Camera: %s, Look at: %s" % (cam_pos, cam_look_at))
             view_frustum_cords = get_view_frustum_cords(
                 cam_pos,
                 cam_look_at,
-                CONSTANTS["PATCH_SIZE"],
+                CONSTANTS[dataset]["PATCH_SIZE"],
                 # TODO: 1.5 -> 2.0. But 2.0 causes incomplete rendering.
                 fov_x / 1.5,
             )
             local_projections = get_local_projections(
                 projections["REST"], view_frustum_cords
             )
-            points = get_points_from_projections(projections, view_frustum_cords)
-            sky_points = get_sky_points(view_frustum_cords[1:3], cam_pos[2], fov_y / 2)
+            points = get_points_from_projections(
+                projections,
+                CLASSES[dataset],
+                SCALES[dataset],
+                seg_ins_map,
+                view_frustum_cords,
+            )
+            sky_points = get_sky_points(
+                view_frustum_cords[1:3],
+                cam_pos[2],
+                fov_y / 2,
+                CONSTANTS[dataset]["PATCH_SIZE"],
+                SCALES[dataset]["SKY"],
+                CLASSES[dataset]["SKY"],
+            )
             points = np.concatenate((points, sky_points), axis=0)
             scales = utils.helpers.get_point_scales(points[:, [3]], points[:, [4]])
-
             # Generate the instance segmentation map as a side product.
             vp_map, ins_map = get_visible_points(
-                points, scales, cam_rig, cam_pos, cam_quat
+                points, scales, cam_rig, cam_pos, cam_quat, CLASSES[dataset]["NULL"]
             )
             vp_idx = np.sort(np.unique(vp_map))
             # Remove the points that are not visible in the current view.
-            points = points[vp_idx]
+            # NOTE: The negative value (-1) denotes the NULL class
+            points = points[vp_idx[vp_idx >= 0]]
             logging.debug("%d points in frame %d." % (len(points), int(r["id"])))
             # Re-generate the visible points map in the newly indexed points
             vp_map = np.searchsorted(vp_idx, vp_map)
 
-            # Image.fromarray(ins_map.astype(np.uint16)).save(
-            #     os.path.join(city_dir, "InstanceImage", "%04d.png" % int(r["id"]))
-            # )
+            Image.fromarray(ins_map.astype(np.uint16)).save(
+                os.path.join(city_instance_map_dir, "%04d.png" % int(r["id"]))
+            )
             seg_map = np.array(
                 Image.open(
                     os.path.join(city_dir, seg_map_file_pattern % (city, int(r["id"])))
@@ -994,16 +1016,16 @@ def main(dataset, data_dir, osm_dir, seg_map_file_pattern, gpus, is_debug):
 if __name__ == "__main__":
     logging.basicConfig(
         format="[%(levelname)s] %(asctime)s %(message)s",
-        level=logging.DEBUG,
+        level=logging.INFO,
     )
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", default="GOOGLE_EARTH")
+    parser.add_argument("--dataset", default="CITY_SAMPLE")
     parser.add_argument(
-        "--data_dir", default=os.path.join(PROJECT_HOME, "data", "google-earth")
+        "--data_dir", default=os.path.join(PROJECT_HOME, "data", "city-sample")
     )
     parser.add_argument("--osm_dir", default=os.path.join(PROJECT_HOME, "data", "osm"))
-    # parser.add_argument("--seg_map", default="SemanticImage/%sSequence.%04d.png")
-    parser.add_argument("--seg_map", default="seg/%s_%02d.png")
+    parser.add_argument("--seg_map", default="SemanticImage/%sSequence.%04d.png")
+    # parser.add_argument("--seg_map", default="seg/%s_%02d.png")
     parser.add_argument("--gpu", default="0")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
