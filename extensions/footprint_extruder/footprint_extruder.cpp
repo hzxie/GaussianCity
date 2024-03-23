@@ -3,7 +3,7 @@
  * @Author: Haozhe Xie
  * @Date:   2024-02-12 13:07:49
  * @Last Modified by: Haozhe Xie
- * @Last Modified at: 2024-03-21 20:34:42
+ * @Last Modified at: 2024-03-23 18:49:41
  * @Email:  root@haozhexie.com
  *
  * References:
@@ -125,7 +125,7 @@ inline bool isBorder(short x, short y, short z, short height, short width,
   if (z > tpDwnHgtFld[idx] - scale || (z == btmUpHgtFld[idx] && incBtmPts)) {
     return true;
   }
-  if (x == 0 || x >= width - scale - 1 || y == 0 || y >= height - scale - 1) {
+  if (x < scale || x >= width - scale - 1 || y < scale || y >= height - scale - 1) {
     return true;
   }
   return !isNeighboringValueSame(segMap, x, y, width, scale) ||
@@ -198,7 +198,6 @@ static PyObject *getPointsFromProjection(PyObject *self, PyObject *args) {
       }
     }
   }
-
   // Returning empty array causes segmentation fault.
   if (points.size() != 0) {
     return getNumpyArrayFromVector(points);

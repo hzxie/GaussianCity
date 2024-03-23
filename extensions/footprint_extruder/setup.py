@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-12 13:07:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-21 20:31:00
+# @Last Modified at: 2024-03-23 16:44:08
 # @Email:  root@haozhexie.com
 
 import numpy
@@ -14,7 +14,7 @@ from distutils.core import setup, Extension
 # run the setup
 setup(
     name="footprint_extruder",
-    version="2.2.0",
+    version="2.2.1",
     ext_modules=[
         Extension(
             "footprint_extruder",
