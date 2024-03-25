@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-23 19:04:17
+# @Last Modified at: 2024-03-25 11:33:47
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -567,7 +567,7 @@ def get_city_sample_camera_parameters(city_dir):
 
 
 def get_google_earth_camera_parameters(city_dir):
-    pass
+    raise NotImplementedError
 
 
 def get_view_frustum_cords(cam_pos, cam_look_at, patch_size, fov_rad):
@@ -984,12 +984,21 @@ def main(dataset, data_dir, osm_dir, seg_map_file_pattern, gpus, is_debug):
                 points, scales, cam_rig, cam_pos, cam_quat, CLASSES[dataset]["NULL"]
             )
             vp_idx = np.sort(np.unique(vp_map))
+            vp_idx = vp_idx[vp_idx >= 0]
             # Remove the points that are not visible in the current view.
             # NOTE: The negative value (-1) denotes the NULL class
-            points = points[vp_idx[vp_idx >= 0]]
+            points = points[vp_idx]
+            # # Debug: Visualize the visible points
+            # utils.helpers.dump_ptcloud_ply(
+            #     "/tmp/points.ply",
+            #     points[:, :3],
+            #     utils.helpers.get_ins_colors(points[:, 4]),
+            # )
             logging.debug("%d points in frame %d." % (len(points), int(r["id"])))
             # Re-generate the visible points map in the newly indexed points
             vp_map = np.searchsorted(vp_idx, vp_map)
+            assert np.max(vp_map) == len(points) - 1
+            assert len(np.unique(vp_map)) == len(points)
 
             Image.fromarray(ins_map.astype(np.uint16)).save(
                 os.path.join(city_instance_map_dir, "%04d.png" % int(r["id"]))
