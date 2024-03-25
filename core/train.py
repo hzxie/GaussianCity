@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-20 09:41:12
+# @Last Modified at: 2024-03-25 08:41:08
 # @Email:  root@haozhexie.com
 
 import logging
@@ -131,10 +131,9 @@ def train(cfg):
         os.makedirs(cfg.DIR.CHECKPOINTS, exist_ok=True)
         # Summary writer
         tb_writer = utils.summary_writer.SummaryWriter(cfg)
-
-    # Log current config
-    tb_writer.add_config(cfg.NETWORK.GAUSSIAN)
-    tb_writer.add_config(cfg.TRAIN.GAUSSIAN)
+        # Log current config
+        tb_writer.add_config(cfg.NETWORK.GAUSSIAN)
+        tb_writer.add_config(cfg.TRAIN.GAUSSIAN)
 
     # Set up the GaussianRasterizer
     gr = dgr.GaussianRasterizerWrapper(
