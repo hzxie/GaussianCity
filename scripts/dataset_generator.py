@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-25 11:33:47
+# @Last Modified at: 2024-03-26 20:57:45
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -16,6 +16,7 @@ import math
 import numpy as np
 import os
 import pickle
+import scipy.spatial.transform
 import sys
 import torch
 
@@ -73,15 +74,15 @@ SCALES = {
         "SKY": 50,
         "ZONE": 10,
         "BLDG_FACADE": 3,
-        "BLDG_ROOF": 5,
+        "BLDG_ROOF": 6,
     },
     "GOOGLE_EARTH": {
-        "ROAD": 10,
-        "BLDG_FACADE": 2,
-        "GREEN_LANDS": 10,
-        "CONSTRUCTION": 2,
-        "WATER": 50,
-        "ZONE": 10,
+        "ROAD": 5,
+        "BLDG_FACADE": 1,
+        "GREEN_LANDS": 5,
+        "CONSTRUCTION": 1,
+        "WATER": 25,
+        "ZONE": 5,
     },
 }
 
@@ -91,19 +92,22 @@ CONSTANTS = {
         "WATER_Z": -17.5,
         "MAP_SIZE": 24576,
         "PATCH_SIZE": 5000,
+        "PROJECTION_SIZE": 2048,
         "IMAGE_WIDTH": 1920,
         "IMAGE_HEIGHT": 1080,
         "CAR_INS_MIN_ID": 5000,
     },
     "GOOGLE_EARTH": {
         "SCALE": 1,
+        "WATER_Z": 0,
         "MAP_SIZE": 2048,
         "PATCH_SIZE": 2048,
+        "PROJECTION_SIZE": 2048,
         "IMAGE_WIDTH": 960,
         "IMAGE_HEIGHT": 540,
+        "ZOOM_LEVEL": 18,
     },
     "ROOF_INS_OFFSET": 1,
-    "LOCAL_MAP_SIZE": 2048,
     "BLDG_INS_MIN_ID": 100,
 }
 
@@ -155,7 +159,7 @@ def _get_city_sample_projections(city_dir):
     projections["REST"] = _get_city_sample_water_areas(
         projections["REST"], HOU_SCALES["WATER"]
     )
-    return projections
+    return None, projections
 
 
 def _get_city_sample_projection(points, classes, scales):
@@ -257,33 +261,6 @@ def _get_point_map(map_size, stride):
     return pts_map
 
 
-def get_seg_map_from_ins_map(dataset, ins_map):
-    if dataset == "CITY_SAMPLE":
-        return _get_city_sample_seg_map(ins_map)
-    elif dataset == "GOOGLE_EARTH":
-        return _get_google_earth_seg_map(ins_map)
-    else:
-        raise Exception("Unknown dataset: %s" % (dataset))
-
-
-def _get_city_sample_seg_map(ins_map):
-    ins_map = ins_map.copy()
-    ins_map[ins_map >= CONSTANTS["CITY_SAMPLE"]["CAR_INS_MIN_ID"]] = CLASSES[
-        "CITY_SAMPLE"
-    ]["CAR"]
-    ins_map[
-        np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))
-    ] = CLASSES["CITY_SAMPLE"]["BLDG_ROOF"]
-    ins_map[ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]] = CLASSES["CITY_SAMPLE"][
-        "BLDG_FACADE"
-    ]
-    return ins_map
-
-
-def _get_google_earth_seg_map(ins_map):
-    raise NotImplementedError
-
-
 def _get_city_sample_water_areas(projection, scale):
     # The rest areas are assigned as the water areas, which is aligned with CitySample.
     water_area = projection["INS"] == CLASSES["CITY_SAMPLE"]["NULL"]
@@ -300,8 +277,6 @@ def _get_city_sample_water_areas(projection, scale):
 
 @utils.helpers.static_vars(osm={})
 def _get_google_earth_projections(city_dir, osm_dir):
-    ZOOM_LEVEL = 18
-
     city_name = "-".join(os.path.basename(city_dir).split("-")[:2])
     # Cache the full height field and semantic map
     if city_name in _get_google_earth_projections.osm:
@@ -342,15 +317,15 @@ def _get_google_earth_projections(city_dir, osm_dir):
         cam_target["longitude"],
         cam_target["latitude"],
         osm_metadata["resolution"],
-        ZOOM_LEVEL,
+        CONSTANTS["GOOGLE_EARTH"]["ZOOM_LEVEL"],
         dtype=float,
     )
     cx -= osm_metadata["bounds"]["xmin"]
     cy -= osm_metadata["bounds"]["ymin"]
-    x_min = int(cx - CONSTANTS["LOCAL_MAP_SIZE"] // 2)
-    x_max = int(cx + CONSTANTS["LOCAL_MAP_SIZE"] // 2)
-    y_min = int(cy - CONSTANTS["LOCAL_MAP_SIZE"] // 2)
-    y_max = int(cy + CONSTANTS["LOCAL_MAP_SIZE"] // 2)
+    x_min = int(cx - CONSTANTS["GOOGLE_EARTH"]["MAP_SIZE"] // 2)
+    x_max = int(cx + CONSTANTS["GOOGLE_EARTH"]["MAP_SIZE"] // 2)
+    y_min = int(cy - CONSTANTS["GOOGLE_EARTH"]["MAP_SIZE"] // 2)
+    y_max = int(cy + CONSTANTS["GOOGLE_EARTH"]["MAP_SIZE"] // 2)
 
     # Reorganze the instance ID of buildings
     reorg_ins_map = ins_map[y_min:y_max, x_min:x_max].copy()
@@ -362,12 +337,15 @@ def _get_google_earth_projections(city_dir, osm_dir):
         reorg_ins_map[reorg_ins_map == ri] = n_bldg
         n_bldg += 2
 
-    return {
+    metadata = osm_metadata.copy()
+    metadata["target"] = {"x": cx, "y": cy, "z": cam_target["altitude"]}
+    return metadata, {
         "REST": {
             "PTS": pts_map[y_min:y_max, x_min:x_max],
             "INS": reorg_ins_map,
             "SEG": seg_map[y_min:y_max, x_min:x_max],
-            "TD_HF": td_hf[y_min:y_max, x_min:x_max],
+            # Consider the elevation of the local area
+            "TD_HF": td_hf[y_min:y_max, x_min:x_max] + ge_metadata["elevation"],
             "BU_HF": bu_hf[y_min:y_max, x_min:x_max],
         }
     }
@@ -396,8 +374,8 @@ def _get_google_earth_instance_map(seg_map):
     # Building instance mask
     building_mask = labels != 0
 
-    # Make building instance IDs are even numbers and start from 10
-    # Assume the ID of a facade instance is 2k, the corresponding roof instance is 2k - 1.
+    # Make building instance IDs are even numbers and start from 100
+    # Assume the ID of a facade instance is 2k, the corresponding roof instance is 2k + 1.
     labels = (labels + CONSTANTS["BLDG_INS_MIN_ID"]) * 2
 
     seg_map[seg_map == CLASSES["GOOGLE_EARTH"]["BLDG_FACADE"]] = 0
@@ -428,6 +406,12 @@ def _get_google_earth_camera_target(project_settings, metadata):
         )
         * 360
         - 180,
+        "altitude": next(
+            _attr["value"]["relative"]
+            for _attr in camera_target
+            if _attr["type"] == "altitudePOI"
+        )
+        + 1,
         # NOTE: The conversion from latitudePOI to latitude is unclear.
         # Fixed with the collected metadata.
         "latitude": metadata["clat"],
@@ -441,6 +425,40 @@ def _lnglat2xy(lng, lat, resolution, zoom_level, tile_size=256, dtype=int):
     x = (lng + 180.0) / 360.0 * n * tile_size
     y = (1.0 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2.0 * n * tile_size
     return (dtype(x * resolution), dtype(y * resolution))
+
+
+def get_seg_map_from_ins_map(dataset, ins_map):
+    if dataset == "CITY_SAMPLE":
+        return _get_city_sample_seg_map(ins_map)
+    elif dataset == "GOOGLE_EARTH":
+        return _get_google_earth_seg_map(ins_map)
+    else:
+        raise Exception("Unknown dataset: %s" % (dataset))
+
+
+def _get_city_sample_seg_map(ins_map):
+    ins_map = ins_map.copy()
+    ins_map[ins_map >= CONSTANTS["CITY_SAMPLE"]["CAR_INS_MIN_ID"]] = CLASSES[
+        "CITY_SAMPLE"
+    ]["CAR"]
+    ins_map[
+        np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))
+    ] = CLASSES["CITY_SAMPLE"]["BLDG_ROOF"]
+    ins_map[ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]] = CLASSES["CITY_SAMPLE"][
+        "BLDG_FACADE"
+    ]
+    return ins_map
+
+
+def _get_google_earth_seg_map(ins_map):
+    ins_map = ins_map.copy()
+    ins_map[
+        np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))
+    ] = CLASSES["GOOGLE_EARTH"]["BLDG_ROOF"]
+    ins_map[ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]] = CLASSES["GOOGLE_EARTH"][
+        "BLDG_FACADE"
+    ]
+    return ins_map
 
 
 def dump_projections(projections, output_dir, is_debug):
@@ -535,11 +553,11 @@ def get_centers_from_projections(projections):
     return centers
 
 
-def get_camera_parameters(dataset, city_dir):
+def get_camera_parameters(dataset, city_dir, metadata):
     if dataset == "CITY_SAMPLE":
         return get_city_sample_camera_parameters(city_dir)
     elif dataset == "GOOGLE_EARTH":
-        return get_google_earth_camera_parameters(city_dir)
+        return get_google_earth_camera_parameters(city_dir, metadata)
     else:
         raise Exception("Unknown dataset: %s" % (dataset))
 
@@ -566,8 +584,77 @@ def get_city_sample_camera_parameters(city_dir):
     return cam_rig, camera_poses
 
 
-def get_google_earth_camera_parameters(city_dir):
-    raise NotImplementedError
+def get_google_earth_camera_parameters(city_dir, metadata):
+    ge_project_name = os.path.basename(city_dir)
+    with open(os.path.join(city_dir, "%s.json" % ge_project_name)) as f:
+        cam_settings = json.load(f)
+
+    # Intrinsic matrix
+    vfov = cam_settings["cameraFrames"][0]["fovVertical"]
+    # The MAGIC NUMBER to make it aligned with Google Earth Renderings
+    cam_focal = cam_settings["height"] / 2 / np.tan(np.deg2rad(vfov)) * 2.06
+    cam_rig = {
+        "intrinsics": [
+            cam_focal / (960 / CONSTANTS["GOOGLE_EARTH"]["IMAGE_WIDTH"]),
+            0,
+            cam_settings["width"] // 2,
+            0,
+            cam_focal / (540 / CONSTANTS["GOOGLE_EARTH"]["IMAGE_HEIGHT"]),
+            cam_settings["height"] // 2,
+            0,
+            0,
+            1,
+        ],
+        "sensor_size": [cam_settings["width"], cam_settings["height"]],
+    }
+    # Extrinsic matrix
+    camera_poses = []
+    for f_idx, cf in enumerate(tqdm(cam_settings["cameraFrames"])):
+        # Camera position
+        tx, ty = _lnglat2xy(
+            cf["coordinate"]["longitude"],
+            cf["coordinate"]["latitude"],
+            metadata["resolution"],
+            CONSTANTS["GOOGLE_EARTH"]["ZOOM_LEVEL"],
+            dtype=float,
+        )
+        tx -= metadata["bounds"]["xmin"]
+        ty -= metadata["bounds"]["ymin"]
+        # Camera rotation
+        quat = _get_quat_from_look_at(
+            {"x": tx, "y": ty, "z": cf["coordinate"]["altitude"]}, metadata["target"]
+        )
+        camera_poses.append(
+            {
+                "id": f_idx,
+                "tx": tx - metadata["target"]["x"],
+                "ty": ty - metadata["target"]["y"],
+                "tz": cf["coordinate"]["altitude"],
+                "qx": quat[0],
+                "qy": quat[1],
+                "qz": quat[2],
+                "qw": quat[3],
+            }
+        )
+
+    return cam_rig, camera_poses
+
+
+def _get_quat_from_look_at(cam_pos, cam_look_at):
+    fwd_vec = np.array(
+        [
+            cam_look_at["x"] - cam_pos["x"],
+            cam_look_at["y"] - cam_pos["y"],
+            cam_look_at["z"] - cam_pos["z"],
+        ]
+    )
+    fwd_vec /= np.linalg.norm(fwd_vec)
+    up_vec = np.array([0, 0, 1])
+    right_vec = np.cross(up_vec, fwd_vec)
+    right_vec /= np.linalg.norm(right_vec)
+    up_vec = np.cross(fwd_vec, right_vec)
+    R = np.stack([fwd_vec, right_vec, up_vec], axis=1)
+    return scipy.spatial.transform.Rotation.from_matrix(R).as_quat()
 
 
 def get_view_frustum_cords(cam_pos, cam_look_at, patch_size, fov_rad):
@@ -591,53 +678,68 @@ def get_view_frustum_cords(cam_pos, cam_look_at, patch_size, fov_rad):
     bl2 = y1 - kl2 * x1
     kl4 = math.tan(math.atan(kl1) - fov_rad)
     bl4 = y1 - kl4 * x1
-    x4 = (bl2 - be3) / (ke3 - kl2)
+    x4 = (bl2 - be3) / (ke3 - kl2) if not math.isinf(ke3) else x3
     y4 = kl2 * x4 + bl2
-    assert abs(y4 - ke3 * x4 - be3) < 1e-5
-    x5 = (bl4 - be3) / (ke3 - kl4)
+    if not math.isinf(ke3):
+        assert abs(y4 - ke3 * x4 - be3) < 1e-5
+    x5 = (bl4 - be3) / (ke3 - kl4) if not math.isinf(ke3) else x3
     y5 = kl4 * x5 + bl4
-    assert abs(y5 - ke3 * x5 - be3) < 1e-5
-    assert (x4 + x5) / 2 - x3 < 1e-5 and (y4 + y5) / 2 - y3 < 1e-5
+    if not math.isinf(ke3):
+        assert abs(y5 - ke3 * x5 - be3) < 1e-5
+    assert abs((x4 + x5) / 2 - x3) < 1e-5, abs((x4 + x5) / 2 - x3)
+    assert abs((y4 + y5) / 2 - y3) < 1e-5, abs((y4 + y5) / 2 - y3)
     # (x6, y6) is the center of the rectangle
     x6, y6 = (x1 + x3) / 2, (y1 + y3) / 2
     # (x7, y7) and (x8, y8) are the two endpoints of E1, respectively.
     x7, y7 = 2 * x6 - x4, 2 * y6 - y4
     x8, y8 = 2 * x6 - x5, 2 * y6 - y5
-    assert (x7 + x8) / 2 - x1 < 1e-5 and (y7 + y8) / 2 - y1 < 1e-5
+    assert abs((x7 + x8) / 2 - x1) < 1e-5
+    assert abs((y7 + y8) / 2 - y1) < 1e-5
     return np.array([(x1, y1), (x4, y4), (x5, y5), (x7, y7), (x8, y8)], dtype=np.int16)
 
 
-def get_local_projections(projections, local_cords):
+def get_local_projections(projections, local_cords, map_size):
     MAPS = [
         {"name": "SEG", "dtype": np.uint8, "interpolation": cv2.INTER_NEAREST},
         {"name": "TD_HF", "dtype": np.float32, "interpolation": cv2.INTER_AREA},
     ]
 
     local_projections = {m["name"]: projections[m["name"]].copy() for m in MAPS}
-    points = np.array([local_cords[1], local_cords[2], local_cords[3], local_cords[4]])
-    # Crop the image
-    x_min, x_max, y_min, y_max = _get_crop(points)
-    for m in MAPS:
-        m_name = m["name"]
-        m_type = m["dtype"]
-        local_projections[m_name] = local_projections[m_name][
-            y_min:y_max, x_min:x_max
-        ].astype(m_type)
+    if local_cords is not None:
+        points = np.array(
+            [local_cords[1], local_cords[2], local_cords[3], local_cords[4]]
+        )
+        # Crop the image
+        x_min, x_max, y_min, y_max = _get_crop(points)
+        for m in MAPS:
+            m_name = m["name"]
+            m_type = m["dtype"]
+            local_projections[m_name] = local_projections[m_name][
+                y_min:y_max, x_min:x_max
+            ].astype(m_type)
 
-    points -= [x_min, y_min]
-    # Rotate the image
-    M, width, height = _get_rotation(points)
+        points -= [x_min, y_min]
+        # Rotate the image
+        M, width, height = _get_rotation(points)
+        # The top-left point of the local projection
+        local_projections["tlp"] = np.array([x_min, y_min])
+        # The affine matrix of the local projection
+        local_projections["affmat"] = M
+        for m in MAPS:
+            m_name = m["name"]
+            local_projections[m_name] = cv2.warpPerspective(
+                local_projections[m_name], M, (width, height)
+            )
+
     for m in MAPS:
         m_name = m["name"]
         m_intp = m["interpolation"]
         local_projections[m_name] = cv2.resize(
-            cv2.warpPerspective(local_projections[m_name], M, (width, height)),
-            (CONSTANTS["LOCAL_MAP_SIZE"], CONSTANTS["LOCAL_MAP_SIZE"]),
+            local_projections[m_name],
+            (map_size, map_size),
             interpolation=m_intp,
         )
 
-    local_projections["tlp"] = np.array([x_min, y_min])
-    local_projections["affmat"] = M
     return local_projections
 
 
@@ -668,7 +770,7 @@ def _get_rotation(points):
 
 
 def get_points_from_projections(
-    projections, classes, scales, seg_ins_map, local_cords=None
+    projections, classes, scales, seg_ins_map, water_z, local_cords=None
 ):
     # XYZ, Scale, Instance ID
     points = np.empty((0, 5), dtype=np.int16)
@@ -685,9 +787,7 @@ def get_points_from_projections(
             )
         # Move the water plane to -3.5m, which is aligned with CitySample.
         if c == "REST":
-            points[:, 2][points[:, 4] == CLASSES["CITY_SAMPLE"]["WATER"]] = CONSTANTS[
-                "CITY_SAMPLE"
-            ]["WATER_Z"]
+            points[:, 2][points[:, 4] == classes["WATER"]] = water_z
 
     logging.debug("#Points: %d" % (len(points)))
     return points
@@ -830,7 +930,9 @@ def _get_ray_voxel_intersection(cam_rig, cam_position, cam_look_at, volume):
     return voxel_id.squeeze() - 1
 
 
-def get_visible_points(points, scales, cam_rig, cam_pos, cam_quat, null_class_id):
+def get_visible_points(
+    points, scales, cam_rig, cam_pos, cam_quat, null_class_id=0, reduce_mem=False
+):
     # NOTE: Each point is assigned with a unique ID. The values in the rendered map
     # denotes the visibility of the points. The values are the same as the point IDs.
     instances = torch.from_numpy(points[:, 4]).cuda()
@@ -840,10 +942,11 @@ def get_visible_points(points, scales, cam_rig, cam_pos, cam_quat, null_class_id
         if isinstance(scales, np.ndarray)
         else scales.cuda()
     )
-    # Scale the volume by 0.2 to reduce the memory usage
-    cam_pos = cam_pos.copy() / 5.0
-    scales = torch.ceil(scales / 5.0).short()
-    points = torch.floor(points / 5.0).short()
+    # Scale the volume by 0.25 to reduce the memory usage
+    if reduce_mem:
+        cam_pos = cam_pos.copy() / 4.0
+        scales = torch.ceil(scales / 4.0).short()
+        points = torch.floor(points / 4.0).short()
     # Generate 3D volume
     volume, offsets = _get_volume(points, scales)
     # Ray-voxel intersection
@@ -872,7 +975,8 @@ def main(dataset, data_dir, osm_dir, seg_map_file_pattern, gpus, is_debug):
     for city in tqdm(cities):
         logging.info("Generating point projections...")
         city_dir = os.path.join(data_dir, city)
-        projections = get_projections(dataset, city_dir, osm_dir)
+        # The metadata is only used for the GOOGLE_EARTH dataset
+        metadata, projections = get_projections(dataset, city_dir, osm_dir)
 
         logging.info("Saving projections...")
         proj_dir = os.path.join(city_dir, "Projection")
@@ -915,7 +1019,11 @@ def main(dataset, data_dir, osm_dir, seg_map_file_pattern, gpus, is_debug):
         # logging.info("Generate the initial points for the whole city...")
         # # points[:, M] -> 0:3: XYZ, 3: Scale, 4: Instance ID
         # points = get_points_from_projections(
-        #     projections, CLASSES[dataset], SCALES[dataset], seg_ins_map
+        #     projections,
+        #     CLASSES[dataset],
+        #     SCALES[dataset],
+        #     seg_ins_map,
+        #     CONSTANTS[dataset]["WATER_Z"],
         # )
 
         # # Debug: Point Cloud Visualization
@@ -925,7 +1033,7 @@ def main(dataset, data_dir, osm_dir, seg_map_file_pattern, gpus, is_debug):
         # utils.helpers.dump_ptcloud_ply("/tmp/points.ply", xyz, rgbs)
 
         # Load camera parameters
-        cam_rig, cam_poses = get_camera_parameters(dataset, city_dir)
+        cam_rig, cam_poses = get_camera_parameters(dataset, city_dir, metadata)
 
         # Initialize the gaussian rasterizer
         fov_x = utils.helpers.intrinsic_to_fov(
@@ -952,43 +1060,62 @@ def main(dataset, data_dir, osm_dir, seg_map_file_pattern, gpus, is_debug):
             cam_pos[1] += CONSTANTS[dataset]["MAP_SIZE"] // 2
             cam_look_at = utils.helpers.get_camera_look_at(cam_pos, cam_quat)
             logging.debug("Current Camera: %s, Look at: %s" % (cam_pos, cam_look_at))
-            view_frustum_cords = get_view_frustum_cords(
-                cam_pos,
-                cam_look_at,
-                CONSTANTS[dataset]["PATCH_SIZE"],
-                # TODO: 1.5 -> 2.0. But 2.0 causes incomplete rendering.
-                fov_x / 1.5,
+            # Make sure that the projection patches are with the same sizes
+            # For the CitySample dataset, the an affine transformation is applied to 
+            # the projection patches.
+            view_frustum_cords = (
+                get_view_frustum_cords(
+                    cam_pos,
+                    cam_look_at,
+                    CONSTANTS[dataset]["PATCH_SIZE"],
+                    # TODO: 1.5 -> 2.0. But 2.0 causes incomplete rendering.
+                    fov_x / 1.5,
+                )
+                if dataset == "CITY_SAMPLE"
+                else None
             )
             local_projections = get_local_projections(
-                projections["REST"], view_frustum_cords
+                projections["REST"],
+                view_frustum_cords,
+                CONSTANTS[dataset]["PROJECTION_SIZE"],
             )
             points = get_points_from_projections(
                 projections,
                 CLASSES[dataset],
                 SCALES[dataset],
                 seg_ins_map,
+                CONSTANTS[dataset]["WATER_Z"],
                 view_frustum_cords,
             )
-            sky_points = get_sky_points(
-                view_frustum_cords[1:3],
-                cam_pos[2],
-                fov_y / 2,
-                CONSTANTS[dataset]["PATCH_SIZE"],
-                SCALES[dataset]["SKY"],
-                CLASSES[dataset]["SKY"],
-            )
-            points = np.concatenate((points, sky_points), axis=0)
+            # Generate sky points for the CitySample dataset
+            if dataset == "CITY_SAMPLE":
+                sky_points = get_sky_points(
+                    view_frustum_cords[1:3],
+                    cam_pos[2],
+                    fov_y / 2,
+                    CONSTANTS[dataset]["PATCH_SIZE"],
+                    SCALES[dataset]["SKY"],
+                    CLASSES[dataset]["SKY"],
+                )
+                points = np.concatenate((points, sky_points), axis=0)
+
             scales = utils.helpers.get_point_scales(points[:, [3]], points[:, [4]])
             # Generate the instance segmentation map as a side product.
             vp_map, ins_map = get_visible_points(
-                points, scales, cam_rig, cam_pos, cam_quat, CLASSES[dataset]["NULL"]
+                points,
+                scales,
+                cam_rig,
+                cam_pos,
+                cam_quat,
+                CLASSES[dataset]["NULL"],
+                dataset == "CITY_SAMPLE",
             )
             vp_idx = np.sort(np.unique(vp_map))
             vp_idx = vp_idx[vp_idx >= 0]
             # Remove the points that are not visible in the current view.
             # NOTE: The negative value (-1) denotes the NULL class
             points = points[vp_idx]
-            # # Debug: Visualize the visible points
+            # Debug: Visualize the visible points
             # utils.helpers.dump_ptcloud_ply(
             #     "/tmp/points.ply",
             #     points[:, :3],
@@ -999,6 +1126,29 @@ def main(dataset, data_dir, osm_dir, seg_map_file_pattern, gpus, is_debug):
             vp_map = np.searchsorted(vp_idx, vp_map)
             assert np.max(vp_map) == len(points) - 1
             assert len(np.unique(vp_map)) == len(points)
+            # # Debug: Render Instance Map with Gaussian Splatting
+            # scales = scales[vp_idx]
+            # import extensions.diff_gaussian_rasterization as dgr
+            # gr = dgr.GaussianRasterizerWrapper(
+            #     np.array(cam_rig["intrinsics"], dtype=np.float32).reshape((3, 3)),
+            #     device=torch.device("cuda"),
+            # )
+            # with torch.no_grad():
+            #     gs_points = utils.helpers.get_gaussian_points(
+            #         torch.from_numpy(points[:, :3]).unsqueeze(0),
+            #         scales.unsqueeze(0) * 0.5,
+            #         {
+            #             "rgb": torch.from_numpy(
+            #                 utils.helpers.get_ins_colors(points[:, 4])
+            #             ).unsqueeze(0)
+            #             / 255.0
+            #         },
+            #     ).cuda()
+            #     img = gr(gs_points.squeeze(0), cam_pos, cam_quat)
+            #     cv2.imwrite(
+            #         "output/test.jpg",
+            #         img.permute(1, 2, 0).cpu().numpy()[..., ::-1] * 255,
+            #     )
 
             Image.fromarray(ins_map.astype(np.uint16)).save(
                 os.path.join(city_instance_map_dir, "%04d.png" % int(r["id"]))
