@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-27 16:54:13
+# @Last Modified at: 2024-03-27 19:18:05
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -180,7 +180,7 @@ def repeat_pts(pts, repeat=1):
 def get_projection_uv(xyz, proj_tlp, proj_aff_mat, proj_size):
     n_pts = xyz.size(1)
     if proj_aff_mat is None or proj_tlp is None:
-        proj_uv = xyz[..., :2]
+        proj_uv = xyz[..., :2].clone()
     else:
         proj_xy1 = torch.cat(
             [
