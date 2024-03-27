@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-21 16:28:44
+# @Last Modified at: 2024-03-27 16:54:13
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -179,16 +179,20 @@ def repeat_pts(pts, repeat=1):
 
 def get_projection_uv(xyz, proj_tlp, proj_aff_mat, proj_size):
     n_pts = xyz.size(1)
-    proj_xy1 = torch.cat(
-        [
-            xyz[..., :2] - proj_tlp.unsqueeze(dim=1),
-            torch.ones(1, n_pts, 1, device=xyz.device),
-        ],
-        dim=-1,
-    )
-    proj_uv = torch.bmm(proj_aff_mat, proj_xy1.permute(0, 2, 1)).permute(0, 2, 1)[
-        ..., :2
-    ]
+    if proj_aff_mat is None or proj_tlp is None:
+        proj_uv = xyz[..., :2]
+    else:
+        proj_xy1 = torch.cat(
+            [
+                xyz[..., :2] - proj_tlp.unsqueeze(dim=1),
+                torch.ones(1, n_pts, 1, device=xyz.device),
+            ],
+            dim=-1,
+        )
+        proj_uv = torch.bmm(proj_aff_mat, proj_xy1.permute(0, 2, 1)).permute(0, 2, 1)[
+            ..., :2
+        ]
+
     assert proj_uv.size() == (xyz.size(0), n_pts, 2)
     proj_uv[..., 0] /= proj_size[0]
     proj_uv[..., 1] /= proj_size[1]

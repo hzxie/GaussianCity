@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-25 08:41:08
+# @Last Modified at: 2024-03-27 16:40:32
 # @Email:  root@haozhexie.com
 
 import logging
@@ -190,9 +190,15 @@ def train(cfg):
             seg = utils.helpers.var_or_cuda(data["seg"], gaussian_g.device)
             proj_hf = utils.helpers.var_or_cuda(data["proj/hf"], gaussian_g.device)
             proj_seg = utils.helpers.var_or_cuda(data["proj/seg"], gaussian_g.device)
-            proj_tlp = utils.helpers.var_or_cuda(data["proj/tlp"], gaussian_g.device)
-            proj_aff_mat = utils.helpers.var_or_cuda(
-                data["proj/affmat"], gaussian_g.device
+            proj_tlp = (
+                utils.helpers.var_or_cuda(data["proj/tlp"], gaussian_g.device)
+                if "proj/tlp" in data
+                else None
+            )
+            proj_aff_mat = (
+                utils.helpers.var_or_cuda(data["proj/affmat"], gaussian_g.device)
+                if "proj/tlp" in data
+                else None
             )
             msk = utils.helpers.var_or_cuda(data["msk"], gaussian_g.device)
             gan_loss_weights = F.interpolate(msk, scale_factor=0.25)

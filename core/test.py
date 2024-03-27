@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:58:23
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-18 16:38:14
+# @Last Modified at: 2024-03-27 16:40:51
 # @Email:  root@haozhexie.com
 
 import logging
@@ -66,9 +66,15 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
             rgb = utils.helpers.var_or_cuda(data["rgb"], gaussian_g.device)
             proj_hf = utils.helpers.var_or_cuda(data["proj/hf"], gaussian_g.device)
             proj_seg = utils.helpers.var_or_cuda(data["proj/seg"], gaussian_g.device)
-            proj_tlp = utils.helpers.var_or_cuda(data["proj/tlp"], gaussian_g.device)
-            proj_aff_mat = utils.helpers.var_or_cuda(
-                data["proj/affmat"], gaussian_g.device
+            proj_tlp = (
+                utils.helpers.var_or_cuda(data["proj/tlp"], gaussian_g.device)
+                if "proj/tlp" in data
+                else None
+            )
+            proj_aff_mat = (
+                utils.helpers.var_or_cuda(data["proj/affmat"], gaussian_g.device)
+                if "proj/tlp" in data
+                else None
             )
 
             # Split pts into attributes

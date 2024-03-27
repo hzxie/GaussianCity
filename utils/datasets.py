@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-18 16:38:21
+# @Last Modified at: 2024-03-27 16:44:02
 # @Email:  root@haozhexie.com
 
 import copy
@@ -22,7 +22,7 @@ def get_dataset(cfg, dataset_name, split):
     if dataset_name == "CITY_SAMPLE":
         return CitySampleDataset(cfg, split)
     elif dataset_name == "GOOGLE_EARTH":
-        raise NotImplementedError()
+        return GoogleDataset(cfg, split)
     else:
         raise Exception("Unknown dataset: %s" % dataset_name)
 
@@ -46,54 +46,41 @@ def collate_fn(batch):
     return data
 
 
-class CitySampleDataset(torch.utils.data.Dataset):
+class Dataset(torch.utils.data.Dataset):
     def __init__(self, cfg, split):
-        super(CitySampleDataset, self).__init__()
-        self.cfg = cfg
+        self.dataset_cfg = cfg
         self.split = split
         self.memcached = {}
-        self.renderings = self._get_renderings(cfg, split)
-        self.n_renderings = len(self.renderings)
         self.transforms = self._get_data_transforms(cfg, split)
+        # Dummy parameters to be filled by the inherited classes
+        self.renderings = []
+        self.n_renderings = 0
 
     def get_K(self):
-        return np.array(self.cfg.DATASETS.CITY_SAMPLE.CAM_K, dtype=np.float32).reshape(
-            (3, 3)
-        )
+        return np.array(self.dataset_cfg.CAM_K, dtype=np.float32).reshape((3, 3))
 
     def get_n_classes(self):
-        return self.cfg.DATASETS.CITY_SAMPLE.N_CLASSES
+        return self.dataset_cfg.N_CLASSES
 
     def get_special_z_scale_classes(self):
-        return list(self.cfg.DATASETS.CITY_SAMPLE.Z_SCALE_SPECIAL_CLASSES.values())
+        return list(self.dataset_cfg.Z_SCALE_SPECIAL_CLASSES.values())
 
     def get_proj_size(self):
-        return self.cfg.DATASETS.CITY_SAMPLE.PROJ_SIZE
+        return self.dataset_cfg.PROJ_SIZE
 
-    def instances_to_classes(self, instances):
-        # Make it compatible in both numpy and PyTorch
-        cfg = self.cfg.DATASETS.CITY_SAMPLE
-        bldg_facade_idx = (
-            (instances >= cfg.BLDG_RANGE[0])
-            & (instances < cfg.BLDG_RANGE[1])
-            & (instances % 2 == 0)
-        )
-        bldg_roof_idx = (
-            (instances >= cfg.BLDG_RANGE[0])
-            & (instances < cfg.BLDG_RANGE[1])
-            & (instances % 2 == 1)
-        )
-        car_idx = (instances >= cfg.CAR_RANGE[0]) & (instances < cfg.CAR_RANGE[1])
-
-        classes = copy.deepcopy(instances)
-        classes[bldg_facade_idx] = cfg.BLDG_FACADE_CLSID
-        classes[bldg_roof_idx] = cfg.BLDG_ROOF_CLSID
-        classes[car_idx] = cfg.CAR_CLSID
-        return classes
+    def pin_memory(self, files, keys=[]):
+        for f in tqdm(files, desc="Loading partial files to RAM"):
+            for k, v in f.items():
+                if k not in keys:
+                    continue
+                elif v in self.memcached:
+                    continue
+                else:
+                    self.memcached[v] = utils.io.IO.get(v)
 
     def __len__(self):
         return (
-            self.n_renderings * self.cfg.DATASETS.CITY_SAMPLE.N_REPEAT
+            self.n_renderings * self.dataset_cfg.N_REPEAT
             if self.split == "train"
             else self.n_renderings
         )
@@ -123,9 +110,9 @@ class CitySampleDataset(torch.utils.data.Dataset):
         # Matched with the scripts/dataset_generator.py.
         cam_pos = (
             np.array([Rt["tx"], Rt["ty"], Rt["tz"]], dtype=np.float32)
-            / self.cfg.DATASETS.CITY_SAMPLE.SCALE
+            / self.dataset_cfg.SCALE
         )
-        cam_pos[:2] += self.cfg.DATASETS.CITY_SAMPLE.MAP_SIZE // 2
+        cam_pos[:2] += self.dataset_cfg.MAP_SIZE // 2
 
         data = {
             "cam_pos": cam_pos,
@@ -138,82 +125,16 @@ class CitySampleDataset(torch.utils.data.Dataset):
             "ins": ins,
             "proj/hf": pts["prj"]["TD_HF"],
             "proj/seg": pts["prj"]["SEG"],
-            "proj/affmat": pts["prj"]["affmat"],
-            "proj/tlp": pts["prj"]["tlp"],
             "vpm": pts["vpm"],
             "msk": pts["msk"],
             "pts": pts["pts"],
         }
+        if "affmat" in pts["prj"] and "tlp" in pts["prj"]:
+            data["proj/affmat"] = pts["prj"]["affmat"]
+            data["proj/tlp"] = pts["prj"]["tlp"]
+
         data = self.transforms(data)
         return data
-
-    def _get_renderings(self, cfg, split):
-        cities = [
-            "City%02d" % (i + 1) for i in range(cfg.DATASETS.CITY_SAMPLE.N_CITIES)
-        ]
-        files = [
-            {
-                "name": "%s/%s/%04d" % (c, s, i),
-                # Camera parameters
-                "Rt": os.path.join(cfg.DATASETS.CITY_SAMPLE.DIR, c, "CameraPoses.csv"),
-                # The XY centers of the instances
-                "centers": os.path.join(cfg.DATASETS.CITY_SAMPLE.DIR, c, "CENTERS.pkl"),
-                "rgb": os.path.join(
-                    cfg.DATASETS.CITY_SAMPLE.DIR,
-                    c,
-                    "ColorImage",
-                    s,
-                    "%sSequence.%04d.jpeg" % (c, i),
-                ),
-                "seg": os.path.join(
-                    cfg.DATASETS.CITY_SAMPLE.DIR,
-                    c,
-                    "SemanticImage",
-                    "%sSequence.%04d.png" % (c, i),
-                ),
-                "ins": os.path.join(
-                    cfg.DATASETS.CITY_SAMPLE.DIR,
-                    c,
-                    "InstanceImage",
-                    "%04d.png" % i,
-                ),
-                # Projection
-                "proj/hf": os.path.join(
-                    cfg.DATASETS.CITY_SAMPLE.DIR, c, "Projection", "REST-TD_HF.png"
-                ),
-                "proj/seg": os.path.join(
-                    cfg.DATASETS.CITY_SAMPLE.DIR, c, "Projection", "REST-SEG.png"
-                ),
-                # Precomputed Points in the viewpoint (scripts/dataset_generator.py)
-                "pts": os.path.join(
-                    cfg.DATASETS.CITY_SAMPLE.DIR, c, "Points", "%04d.pkl" % i
-                ),
-            }
-            for c in cities
-            for i in range(cfg.DATASETS.CITY_SAMPLE.N_VIEWS)
-            for s in cfg.DATASETS.CITY_SAMPLE.CITY_STYLES
-        ]
-        if not cfg.DATASETS.CITY_SAMPLE.PIN_MEMORY:
-            return files
-
-        for f in tqdm(files, desc="Loading partial files to RAM"):
-            for k, v in f.items():
-                if k not in cfg.DATASETS.CITY_SAMPLE.PIN_MEMORY:
-                    continue
-                elif v in self.memcached:
-                    continue
-                else:
-                    self.memcached[v] = utils.io.IO.get(v)
-
-        return (
-            files
-            if split == "train"
-            else [
-                f
-                for f in files
-                if f["name"].endswith("000") or f["name"].endswith("500")
-            ]
-        )
 
     def _get_data_transforms(self, cfg, split):
         if split == "train":
@@ -222,10 +143,10 @@ class CitySampleDataset(torch.utils.data.Dataset):
                     {
                         "callback": "RandomCrop",
                         "parameters": {
-                            "height": cfg.TRAIN.GAUSSIAN.IMG_CROP_SIZE[1],
-                            "width": cfg.TRAIN.GAUSSIAN.IMG_CROP_SIZE[0],
-                            "n_min_pixels": cfg.TRAIN.GAUSSIAN.N_MIN_PIXELS,
-                            "n_max_points": cfg.TRAIN.GAUSSIAN.N_MAX_POINTS,
+                            "height": cfg.TRAIN_CROP_SIZE[1],
+                            "width": cfg.TRAIN_CROP_SIZE[0],
+                            "n_min_pixels": cfg.TRAIN_MIN_PIXELS,
+                            "n_max_points": cfg.TRAIN_MAX_POINTS,
                         },
                         "objects": ["rgb", "seg", "ins", "vpm", "msk"],
                     },
@@ -249,7 +170,7 @@ class CitySampleDataset(torch.utils.data.Dataset):
                     {
                         "callback": "ToOneHot",
                         "parameters": {
-                            "n_classes": cfg.DATASETS.CITY_SAMPLE.N_CLASSES,
+                            "n_classes": self.get_n_classes(),
                         },
                         "objects": ["seg", "proj/seg"],
                     },
@@ -275,8 +196,8 @@ class CitySampleDataset(torch.utils.data.Dataset):
                     {
                         "callback": "RandomCrop",
                         "parameters": {
-                            "height": cfg.TEST.GAUSSIAN.IMG_CROP_SIZE[1],
-                            "width": cfg.TEST.GAUSSIAN.IMG_CROP_SIZE[0],
+                            "height": cfg.TEST_CROP_SIZE[1],
+                            "width": cfg.TEST_CROP_SIZE[0],
                             "mode": "center",
                         },
                         "objects": ["rgb", "seg", "ins", "vpm", "msk"],
@@ -301,7 +222,7 @@ class CitySampleDataset(torch.utils.data.Dataset):
                     {
                         "callback": "ToOneHot",
                         "parameters": {
-                            "n_classes": cfg.DATASETS.CITY_SAMPLE.N_CLASSES,
+                            "n_classes": self.get_n_classes(),
                         },
                         "objects": ["seg", "proj/seg"],
                     },
@@ -321,3 +242,155 @@ class CitySampleDataset(torch.utils.data.Dataset):
                     },
                 ]
             )
+
+
+class GoogleDataset(Dataset):
+    def __init__(self, cfg, split):
+        super(GoogleDataset, self).__init__(cfg.DATASETS.GOOGLE_EARTH, split)
+        self.cfg = cfg
+        self.renderings = self._get_renderings(cfg.DATASETS.GOOGLE_EARTH, split)
+        self.n_renderings = len(self.renderings)
+
+    def instances_to_classes(self, instances):
+        # Make it compatible in both numpy and PyTorch
+        cfg = self.cfg.DATASETS.GOOGLE_EARTH
+        bldg_facade_idx = (
+            (instances >= cfg.BLDG_RANGE[0])
+            & (instances < cfg.BLDG_RANGE[1])
+            & (instances % 2 == 0)
+        )
+        bldg_roof_idx = (
+            (instances >= cfg.BLDG_RANGE[0])
+            & (instances < cfg.BLDG_RANGE[1])
+            & (instances % 2 == 1)
+        )
+
+        classes = copy.deepcopy(instances)
+        classes[bldg_facade_idx] = cfg.BLDG_FACADE_CLSID
+        classes[bldg_roof_idx] = cfg.BLDG_ROOF_CLSID
+        return classes
+
+    def _get_renderings(self, cfg, split):
+        cities = sorted(os.listdir(cfg.DIR))[: cfg.N_CITIES]
+        files = [
+            {
+                "name": "%s/%02d" % (c, i),
+                # Camera parameters
+                "Rt": os.path.join(cfg.DIR, c, "CameraPoses.csv"),
+                # The XY centers of the instances
+                "centers": os.path.join(cfg.DIR, c, "CENTERS.pkl"),
+                "rgb": os.path.join(
+                    cfg.DIR,
+                    c,
+                    "footage",
+                    "%s_%02d.jpeg" % (c, i),
+                ),
+                "seg": os.path.join(
+                    cfg.DIR,
+                    c,
+                    "seg",
+                    "%s_%02d.png" % (c, i),
+                ),
+                "ins": os.path.join(
+                    cfg.DIR,
+                    c,
+                    "InstanceImage",
+                    "%04d.png" % i,
+                ),
+                # Projection
+                "proj/hf": os.path.join(cfg.DIR, c, "Projection", "REST-TD_HF.png"),
+                "proj/seg": os.path.join(cfg.DIR, c, "Projection", "REST-SEG.png"),
+                # Precomputed Points in the viewpoint (scripts/dataset_generator.py)
+                "pts": os.path.join(cfg.DIR, c, "Points", "%04d.pkl" % i),
+            }
+            for c in cities
+            for i in range(cfg.N_VIEWS)
+        ]
+        if cfg.PIN_MEMORY:
+            self.pin_memory(files, cfg.PIN_MEMORY)
+
+        return (
+            files
+            if split == "train"
+            else [f for f in files if f["name"].endswith("00")]
+        )
+
+
+class CitySampleDataset(Dataset):
+    def __init__(self, cfg, split):
+        super(CitySampleDataset, self).__init__(cfg.DATASETS.CITY_SAMPLE, split)
+        self.cfg = cfg
+        self.renderings = self._get_renderings(cfg.DATASETS.CITY_SAMPLE, split)
+        self.n_renderings = len(self.renderings)
+
+    def instances_to_classes(self, instances):
+        # Make it compatible in both numpy and PyTorch
+        cfg = self.cfg.DATASETS.CITY_SAMPLE
+        bldg_facade_idx = (
+            (instances >= cfg.BLDG_RANGE[0])
+            & (instances < cfg.BLDG_RANGE[1])
+            & (instances % 2 == 0)
+        )
+        bldg_roof_idx = (
+            (instances >= cfg.BLDG_RANGE[0])
+            & (instances < cfg.BLDG_RANGE[1])
+            & (instances % 2 == 1)
+        )
+        car_idx = (instances >= cfg.CAR_RANGE[0]) & (instances < cfg.CAR_RANGE[1])
+
+        classes = copy.deepcopy(instances)
+        classes[bldg_facade_idx] = cfg.BLDG_FACADE_CLSID
+        classes[bldg_roof_idx] = cfg.BLDG_ROOF_CLSID
+        classes[car_idx] = cfg.CAR_CLSID
+        return classes
+
+    def _get_renderings(self, cfg, split):
+        cities = ["City%02d" % (i + 1) for i in range(cfg.N_CITIES)]
+        files = [
+            {
+                "name": "%s/%s/%04d" % (c, s, i),
+                # Camera parameters
+                "Rt": os.path.join(cfg.DIR, c, "CameraPoses.csv"),
+                # The XY centers of the instances
+                "centers": os.path.join(cfg.DIR, c, "CENTERS.pkl"),
+                "rgb": os.path.join(
+                    cfg.DIR,
+                    c,
+                    "ColorImage",
+                    s,
+                    "%sSequence.%04d.jpeg" % (c, i),
+                ),
+                "seg": os.path.join(
+                    cfg.DIR,
+                    c,
+                    "SemanticImage",
+                    "%sSequence.%04d.png" % (c, i),
+                ),
+                "ins": os.path.join(
+                    cfg.DIR,
+                    c,
+                    "InstanceImage",
+                    "%04d.png" % i,
+                ),
+                # Projection
+                "proj/hf": os.path.join(cfg.DIR, c, "Projection", "REST-TD_HF.png"),
+                "proj/seg": os.path.join(cfg.DIR, c, "Projection", "REST-SEG.png"),
+                # Precomputed Points in the viewpoint (scripts/dataset_generator.py)
+                "pts": os.path.join(cfg.DIR, c, "Points", "%04d.pkl" % i),
+            }
+            for c in cities
+            for i in range(cfg.N_VIEWS)
+            for s in cfg.CITY_STYLES
+        ]
+        if cfg.PIN_MEMORY:
+            self.pin_memory(files, cfg.PIN_MEMORY)
+
+        return (
+            files
+            if split == "train"
+            else [
+                f
+                for f in files
+                if f["name"].endswith("000") or f["name"].endswith("500")
+            ]
+        )
