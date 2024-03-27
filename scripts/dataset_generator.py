@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-27 11:35:27
+# @Last Modified at: 2024-03-27 16:27:02
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -659,6 +659,25 @@ def _get_quat_from_look_at(cam_pos, cam_look_at):
     return scipy.spatial.transform.Rotation.from_matrix(R).as_quat()
 
 
+def save_camera_poses(output_file_path, cam_poses):
+    with open(output_file_path, "w", newline="") as fp:
+        writer = csv.DictWriter(
+            fp,
+            fieldnames=[
+                "id",
+                "tx",
+                "ty",
+                "tz",
+                "qx",
+                "qy",
+                "qz",
+                "qw",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(cam_poses)
+
+
 def get_view_frustum_cords(cam_pos, cam_look_at, patch_size, fov_rad):
     # cam_pos: (x1, y1); cam_look_at: (x2, y2)
     # This patch has four edges (E1, E2, E3, and E4) arranged clockwise.
@@ -972,8 +991,7 @@ def get_visible_points(
     return vp_map.cpu().numpy(), ins_map.cpu().numpy()
 
 
-def main(dataset, data_dir, osm_dir, gpus, is_debug):
-    os.environ["CUDA_VISIBLE_DEVICES"] = gpus
+def main(dataset, data_dir, osm_dir, is_debug):
     assert dataset in ["GOOGLE_EARTH", "CITY_SAMPLE"], "Unknown dataset: %s" % dataset
 
     cities = sorted(os.listdir(data_dir))
@@ -1039,6 +1057,9 @@ def main(dataset, data_dir, osm_dir, gpus, is_debug):
 
         # Load camera parameters
         cam_rig, cam_poses = get_camera_parameters(dataset, city_dir, metadata)
+        # Save the camera parameters for the GoogleEarth dataset
+        if dataset == "GOOGLE_EARTH":
+            save_camera_poses(os.path.join(city_dir, "CameraPoses.csv"), cam_poses)
 
         # Initialize the gaussian rasterizer
         fov_x = utils.helpers.intrinsic_to_fov(
@@ -1191,7 +1212,6 @@ if __name__ == "__main__":
         "--data_dir", default=os.path.join(PROJECT_HOME, "data", "city-sample")
     )
     parser.add_argument("--osm_dir", default=os.path.join(PROJECT_HOME, "data", "osm"))
-    parser.add_argument("--gpu", default="0")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
-    main(args.dataset, args.data_dir, args.osm_dir, args.gpu, args.debug)
+    main(args.dataset, args.data_dir, args.osm_dir, args.debug)
