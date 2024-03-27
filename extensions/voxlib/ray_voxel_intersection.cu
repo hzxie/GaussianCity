@@ -1,12 +1,11 @@
-// Copyright (C) 2021 NVIDIA CORPORATION & AFFILIATES.  All rights reserved.
-//
-// This work is made available under the Nvidia Source Code License-NC.
-// To view a copy of this license, check out LICENSE.md
-//
-// The ray marching algorithm used in this file is a variety of modified
-// Bresenham method:
-// http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.42.3443&rep=rep1&type=pdf
-// Search for "voxel traversal algorithm" for related information
+/**
+ * @File:   ray_voxel_intersection.cu
+ * @Author: NVIDIA Corporation
+ * @Date:   2021-10-13 00:00:00
+ * @Last Modified by: Haozhe Xie
+ * @Last Modified at: 2024-03-27 11:02:41
+ * @Email:  root@haozhexie.com
+ */
 
 #include <torch/types.h>
 
@@ -187,9 +186,11 @@ static __global__ void ray_voxel_intersection_perspective_kernel(
       }
 
       // Test intersection using voxel grid
-      blk_id = in_voxel[axis_int[0] * p.voxel_strides[0] +
-                        axis_int[1] * p.voxel_strides[1] +
-                        axis_int[2] * p.voxel_strides[2]];
+      int64_t in_voxel_idx =
+          static_cast<int64_t>(axis_int[0]) * p.voxel_strides[0] +
+          static_cast<int64_t>(axis_int[1]) * p.voxel_strides[1] +
+          static_cast<int64_t>(axis_int[2]) * p.voxel_strides[2];
+      blk_id = in_voxel[in_voxel_idx];
       if (blk_id == 0) {
         continue;
       }

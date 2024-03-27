@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-27 09:36:48
+# @Last Modified at: 2024-03-27 11:35:27
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -923,10 +923,6 @@ def _get_ray_voxel_intersection(cam_rig, cam_position, cam_look_at, volume):
         [cam_rig["sensor_size"][1], cam_rig["sensor_size"][0]],
         N_MAX_SAMPLES,
     )
-    # Manually release the memory to avoid OOM
-    del volume
-    torch.cuda.empty_cache()
-
     # NOTE: The point ID for NULL class is -1, the rest point IDs are from 0 to N - 1.
     # The ray_voxel_intersection_perspective seems not accepting the negative values.
     return voxel_id.squeeze() - 1
@@ -944,11 +940,13 @@ def get_visible_points(
         if isinstance(scales, np.ndarray)
         else scales.cuda()
     )
-    # Scale the volume by 0.25 to reduce the memory usage
+    # Scale the volume by 0.33 to reduce the memory usage
     if reduce_mem:
-        cam_pos = cam_pos.copy() / 4.0
-        scales = torch.ceil(scales / 4.0).short()
-        points = torch.floor(points / 4.0).short()
+        SCALE_FACTOR = 1 / 3.0
+        cam_pos = cam_pos.copy() * SCALE_FACTOR
+        scales = (scales * SCALE_FACTOR).clamp(min=1).short()
+        points = torch.floor(points * SCALE_FACTOR).short()
+
     # Generate 3D volume
     volume, offsets = _get_volume(points, scales)
     # Ray-voxel intersection
@@ -966,6 +964,11 @@ def get_visible_points(
     # Image.fromarray(
     #     utils.helpers.get_ins_seg_map.r_palatte[ins_map.cpu().numpy()],
     # ).save("output/test.jpg")
+
+    # Manually release the memory to avoid OOM
+    del volume
+    torch.cuda.empty_cache()
+
     return vp_map.cpu().numpy(), ins_map.cpu().numpy()
 
 
