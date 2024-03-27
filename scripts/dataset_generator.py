@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-26 20:57:45
+# @Last Modified at: 2024-03-27 09:36:48
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -96,6 +96,7 @@ CONSTANTS = {
         "IMAGE_WIDTH": 1920,
         "IMAGE_HEIGHT": 1080,
         "CAR_INS_MIN_ID": 5000,
+        "SEG_MAP_PATTERN": "SemanticImage/%sSequence.%04d.png",
     },
     "GOOGLE_EARTH": {
         "SCALE": 1,
@@ -106,6 +107,7 @@ CONSTANTS = {
         "IMAGE_WIDTH": 960,
         "IMAGE_HEIGHT": 540,
         "ZOOM_LEVEL": 18,
+        "SEG_MAP_PATTERN": "seg/%s_%02d.png",
     },
     "ROOF_INS_OFFSET": 1,
     "BLDG_INS_MIN_ID": 100,
@@ -733,13 +735,13 @@ def get_local_projections(projections, local_cords, map_size):
 
     for m in MAPS:
         m_name = m["name"]
+        m_type = m["dtype"]
         m_intp = m["interpolation"]
         local_projections[m_name] = cv2.resize(
-            local_projections[m_name],
+            local_projections[m_name].astype(m_type),
             (map_size, map_size),
             interpolation=m_intp,
         )
-
     return local_projections
 
 
@@ -967,12 +969,12 @@ def get_visible_points(
     return vp_map.cpu().numpy(), ins_map.cpu().numpy()
 
 
-def main(dataset, data_dir, osm_dir, seg_map_file_pattern, gpus, is_debug):
+def main(dataset, data_dir, osm_dir, gpus, is_debug):
     os.environ["CUDA_VISIBLE_DEVICES"] = gpus
     assert dataset in ["GOOGLE_EARTH", "CITY_SAMPLE"], "Unknown dataset: %s" % dataset
 
     cities = sorted(os.listdir(data_dir))
-    for city in tqdm(cities):
+    for c_idx, city in enumerate(tqdm(cities)):
         logging.info("Generating point projections...")
         city_dir = os.path.join(data_dir, city)
         # The metadata is only used for the GOOGLE_EARTH dataset
@@ -1061,7 +1063,7 @@ def main(dataset, data_dir, osm_dir, seg_map_file_pattern, gpus, is_debug):
             cam_look_at = utils.helpers.get_camera_look_at(cam_pos, cam_quat)
             logging.debug("Current Camera: %s, Look at: %s" % (cam_pos, cam_look_at))
             # Make sure that the projection patches are with the same sizes
-            # For the CitySample dataset, the an affine transformation is applied to 
+            # For the CitySample dataset, the an affine transformation is applied to
             # the projection patches.
             view_frustum_cords = (
                 get_view_frustum_cords(
@@ -1155,7 +1157,10 @@ def main(dataset, data_dir, osm_dir, seg_map_file_pattern, gpus, is_debug):
             )
             seg_map = np.array(
                 Image.open(
-                    os.path.join(city_dir, seg_map_file_pattern % (city, int(r["id"])))
+                    os.path.join(
+                        city_dir,
+                        CONSTANTS[dataset]["SEG_MAP_PATTERN"] % (city, int(r["id"])),
+                    )
                 ).convert("P")
             )
             with open(
@@ -1183,9 +1188,7 @@ if __name__ == "__main__":
         "--data_dir", default=os.path.join(PROJECT_HOME, "data", "city-sample")
     )
     parser.add_argument("--osm_dir", default=os.path.join(PROJECT_HOME, "data", "osm"))
-    parser.add_argument("--seg_map", default="SemanticImage/%sSequence.%04d.png")
-    # parser.add_argument("--seg_map", default="seg/%s_%02d.png")
     parser.add_argument("--gpu", default="0")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
-    main(args.dataset, args.data_dir, args.osm_dir, args.seg_map, args.gpu, args.debug)
+    main(args.dataset, args.data_dir, args.osm_dir, args.gpu, args.debug)
