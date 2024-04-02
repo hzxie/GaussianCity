@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 14:18:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-16 10:24:57
+# @Last Modified at: 2024-04-02 11:30:10
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -66,7 +66,9 @@ class RandomCrop(object):
         self.objects = objects
 
     def _get_offset(self, size, crop_size):
-        if self.mode == "random":
+        if size == crop_size:
+            return 0
+        elif self.mode == "random":
             return np.random.randint(0, size - crop_size - 1)
         elif self.mode == "center":
             return size // 2 - crop_size // 2
@@ -173,15 +175,17 @@ class NormalizePointCords(object):
     def __call__(self, data):
         instances = np.unique(data["pts"][:, -1])
         rel_cords = data["pts"][:, :3].copy().astype(np.float32)
-        for i in instances:
-            is_pts = data["pts"][:, -1] == i
-            cx, cy, w, h, d = data["centers"][i]
+        batch_idx = np.zeros((data["pts"].shape[0], 1), dtype=np.float32)
+        for idx, ins in enumerate(instances):
+            is_pts = data["pts"][:, -1] == ins
+            cx, cy, w, h, d = data["centers"][ins]
 
             rel_cords[is_pts, 0] = (data["pts"][is_pts, 0] - cx) / w * 2
             rel_cords[is_pts, 1] = (data["pts"][is_pts, 1] - cy) / h * 2
             rel_cords[is_pts, 2] = np.clip(data["pts"][is_pts, 2] / d * 2 - 1, -1, 1)
+            batch_idx[is_pts, 0] = idx
 
-        data["pts"] = np.concatenate((data["pts"], rel_cords), axis=1)
+        data["pts"] = np.concatenate((data["pts"], rel_cords, batch_idx), axis=1)
         return data
 
 

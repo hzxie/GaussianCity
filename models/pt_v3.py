@@ -4,7 +4,7 @@
 # @Author: Xiaoyang Wu <xiaoyang.wu.cs@gmail.com>
 # @Date:   2024-04-01 16:31:36
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-02 09:04:56
+# @Last Modified at: 2024-04-02 20:25:14
 # @Email:  root@haozhexie.com
 # Ref:
 # - https://github.com/Pointcept/PointTransformerV3/blob/main/model.py
@@ -107,6 +107,7 @@ class Serializator:
             code = self.hilbert_encode(grid_coord[:, [1, 0, 2]], depth=depth)
         else:
             raise NotImplementedError
+
         if batch is not None:
             batch = batch.long()
             code = batch << depth * 3 | code
@@ -326,6 +327,15 @@ class Serializator:
         return shifted
 
 
+class PointModule(torch.nn.Module):
+    r"""PointModule
+    placeholder, all module subclass from this will take Point in PointSequential.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+
 class Point(addict.Dict):
     """
     Point Structure of Pointcept
@@ -440,12 +450,14 @@ class Point(addict.Dict):
             self["grid_coord"] = torch.div(
                 self.coord - self.coord.min(0)[0], self.grid_size, rounding_mode="trunc"
             ).int()
+
         if "sparse_shape" in self.keys():
             sparse_shape = self.sparse_shape
         else:
             sparse_shape = torch.add(
                 torch.max(self.grid_coord, dim=0).values, pad
             ).tolist()
+
         sparse_conv_feat = spconv.SparseConvTensor(
             features=self.feat,
             indices=torch.cat(
@@ -458,7 +470,7 @@ class Point(addict.Dict):
         self["sparse_conv_feat"] = sparse_conv_feat
 
 
-class PointSequential(torch.nn.Module):
+class PointSequential(PointModule):
     r"""A sequential container.
     Modules will be added to it in the order they are passed in the constructor.
     Alternatively, an ordered dict of modules can also be passed in.
@@ -498,9 +510,9 @@ class PointSequential(torch.nn.Module):
         self.add_module(name, module)
 
     def forward(self, input):
-        for k, module in self._modules.items():
+        for module in self._modules.values():
             # Point module
-            if isinstance(module, torch.nn.Module):
+            if isinstance(module, PointModule):
                 input = module(input)
             # Spconv module
             elif spconv.modules.is_spconv_module(module):
@@ -522,10 +534,11 @@ class PointSequential(torch.nn.Module):
                         input = input.replace_feature(module(input.features))
                 else:
                     input = module(input)
+
         return input
 
 
-class PDNorm(torch.nn.Module):
+class PDNorm(PointModule):
     def __init__(
         self,
         num_features,
@@ -592,7 +605,7 @@ class RPE(torch.nn.Module):
         return out
 
 
-class SerializedAttention(torch.nn.Module):
+class SerializedAttention(PointModule):
     def __init__(
         self,
         channels,
@@ -788,13 +801,13 @@ class MLP(torch.nn.Module):
     def forward(self, x):
         x = self.fc1(x)
         x = self.act(x)
-        x = self.drop(x)
+        # x = self.drop(x)
         x = self.fc2(x)
         # x = self.drop(x)
         return x
 
 
-class Block(torch.nn.Module):
+class Block(PointModule):
     def __init__(
         self,
         channels,
@@ -923,7 +936,7 @@ class DropPath(torch.nn.Module):
         return self._drop_path(x, self.drop_prob, self.training, self.scale_by_keep)
 
 
-class SerializedPooling(torch.nn.Module):
+class SerializedPooling(PointModule):
     def __init__(
         self,
         in_channels,
@@ -1030,7 +1043,7 @@ class SerializedPooling(torch.nn.Module):
         return point
 
 
-class SerializedUnpooling(torch.nn.Module):
+class SerializedUnpooling(PointModule):
     def __init__(
         self,
         in_channels,
@@ -1068,7 +1081,7 @@ class SerializedUnpooling(torch.nn.Module):
         return parent
 
 
-class Embedding(torch.nn.Module):
+class Embedding(PointModule):
     def __init__(
         self,
         in_channels,
@@ -1101,7 +1114,7 @@ class Embedding(torch.nn.Module):
         return point
 
 
-class PointTransformerV3(torch.nn.Module):
+class PointTransformerV3(PointModule):
     def __init__(
         self,
         in_channels=6,
@@ -1116,6 +1129,7 @@ class PointTransformerV3(torch.nn.Module):
         dec_num_head=(4, 4, 8, 16),
         dec_patch_size=(1024, 1024, 1024, 1024),
         mlp_ratio=4,
+        grid_size=0.01,
         qkv_bias=True,
         qk_scale=None,
         attn_drop=0.0,
@@ -1140,6 +1154,7 @@ class PointTransformerV3(torch.nn.Module):
         self.order = [order] if isinstance(order, str) else order
         self.cls_mode = cls_mode
         self.shuffle_orders = shuffle_orders
+        self.grid_size = grid_size
 
         assert self.num_stages == len(stride) + 1
         assert self.num_stages == len(enc_depths)
@@ -1178,7 +1193,6 @@ class PointTransformerV3(torch.nn.Module):
             ln_layer = torch.nn.LayerNorm
         # activation layers
         act_layer = torch.nn.GELU
-
         self.embedding = Embedding(
             in_channels=in_channels,
             embed_channels=enc_channels[0],
@@ -1283,7 +1297,7 @@ class PointTransformerV3(torch.nn.Module):
                     )
                 self.dec.add(module=dec, name=f"dec{s}")
 
-    def forward(self, data_dict):
+    def forward(self, batch, feat, coord):
         """
         A data_dict is a dictionary containing properties of a batched point cloud.
         It should contain the following properties for PTv3:
@@ -1291,7 +1305,14 @@ class PointTransformerV3(torch.nn.Module):
         2. "grid_coord": discrete coordinate after grid sampling (voxelization) or "coord" + "grid_size"
         3. "offset" or "batch": https://github.com/Pointcept/Pointcept?tab=readme-ov-file#offset
         """
-        point = Point(data_dict)
+        point = Point(
+            {
+                "batch": batch.squeeze(dim=0),
+                "feat": feat.squeeze(dim=0),
+                "coord": coord.squeeze(dim=0),
+                "grid_size": self.grid_size,
+            }
+        )
         point.serialization(order=self.order, shuffle_orders=self.shuffle_orders)
         point.sparsify()
 
@@ -1300,4 +1321,4 @@ class PointTransformerV3(torch.nn.Module):
         if not self.cls_mode:
             point = self.dec(point)
 
-        return point
+        return point.feat.unsqueeze(dim=0)

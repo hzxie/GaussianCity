@@ -4,12 +4,14 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:36:52
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-30 14:36:31
+# @Last Modified at: 2024-04-02 20:24:28
 # @Email:  root@haozhexie.com
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+
+import models.pt_v3
 
 
 class Generator(torch.nn.Module):
@@ -33,7 +35,7 @@ class Generator(torch.nn.Module):
             cfg.NETWORK.GAUSSIAN.ATTR_N_LAYERS,
         )
 
-    def forward(self, proj_uv, rel_xyz, onehots, z, proj_hf, proj_seg):
+    def forward(self, proj_uv, rel_xyz, bch_idx, onehots, z, proj_hf, proj_seg):
         proj_feat = self.encoder(proj_hf, proj_seg)
         pt_feat = (
             F.grid_sample(proj_feat, proj_uv.unsqueeze(dim=1), align_corners=True)
@@ -43,7 +45,7 @@ class Generator(torch.nn.Module):
         pt_feat = torch.cat([pt_feat, rel_xyz], dim=2)
         pt_feat = self.pos_encoder(pt_feat)
         # print(pt_feat.size())   # torch.Size([bs, n_pts, 1024]
-        return self.ga_mlp(pt_feat, onehots, z)
+        return self.ga_mlp(bch_idx, pt_feat, rel_xyz, onehots, z)
 
 
 class ProjectionEncoder(torch.nn.Module):
@@ -197,8 +199,9 @@ class GaussianAttrMLP(torch.nn.Module):
             hidden_dim,
             bias=False,
         )
+        self.ptv3 = models.pt_v3.PointTransformerV3(in_channels=in_dim)
         self.fc_1 = torch.nn.Linear(
-            in_dim,
+            64,
             hidden_dim,
         )
         for i in range(2, n_shared_layers + 1):
@@ -238,10 +241,11 @@ class GaussianAttrMLP(torch.nn.Module):
                 ),
             )
 
-    def forward(self, pt_feat, onehots, zs):
+    def forward(self, batch_idx, pt_feat, coordinates, onehots, zs):
         b, n, _ = pt_feat.size()
 
-        f = self.fc_1(pt_feat)
+        f = self.ptv3(batch_idx, pt_feat, coordinates)
+        f = self.fc_1(f)
         f = f + self.fc_m_a(onehots)
         f = self.act(f)
         output = {
