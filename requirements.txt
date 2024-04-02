@@ -10,3 +10,8 @@ torch
 torchvision
 tqdm
 wandb
+
+addict
+flash_attn
+spconv-cu118
+torch_scatter
