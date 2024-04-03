@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 14:18:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-02 11:30:10
+# @Last Modified at: 2024-04-03 20:51:24
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -180,9 +180,11 @@ class NormalizePointCords(object):
             is_pts = data["pts"][:, -1] == ins
             cx, cy, w, h, d = data["centers"][ins]
 
-            rel_cords[is_pts, 0] = (data["pts"][is_pts, 0] - cx) / w * 2
-            rel_cords[is_pts, 1] = (data["pts"][is_pts, 1] - cy) / h * 2
-            rel_cords[is_pts, 2] = np.clip(data["pts"][is_pts, 2] / d * 2 - 1, -1, 1)
+            rel_cords[is_pts, 0] = (data["pts"][is_pts, 0] - cx) / w * 2 if w > 0 else 0
+            rel_cords[is_pts, 1] = (data["pts"][is_pts, 1] - cy) / h * 2 if h > 0 else 0
+            rel_cords[is_pts, 2] = (
+                np.clip(data["pts"][is_pts, 2] / d * 2 - 1, -1, 1) if d > 0 else 0
+            )
             batch_idx[is_pts, 0] = idx
 
         data["pts"] = np.concatenate((data["pts"], rel_cords, batch_idx), axis=1)
