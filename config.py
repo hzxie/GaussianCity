@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-27 16:24:40
+# @Last Modified at: 2024-04-03 15:31:43
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -109,10 +109,21 @@ cfg.NETWORK.GAUSSIAN.PROJ_ENCODER_OUT_DIM         = 64
 cfg.NETWORK.GAUSSIAN.N_FREQ_BANDS                 = 10
 cfg.NETWORK.GAUSSIAN.Z_DIM                        = 256
 cfg.NETWORK.GAUSSIAN.MLP_HIDDEN_DIM               = 512
-cfg.NETWORK.GAUSSIAN.MLP_N_SHARED_LAYERS          = 5
-cfg.NETWORK.GAUSSIAN.ATTR_FACTORS                 = {"xyz": 40, "rgb": 1, "opacity": 0.5}
-cfg.NETWORK.GAUSSIAN.ATTR_N_LAYERS                = {"xyz": 1, "rgb": 1, "opacity": 1}
+cfg.NETWORK.GAUSSIAN.MLP_N_SHARED_LAYERS          = 1
+cfg.NETWORK.GAUSSIAN.ATTR_FACTORS                 = {"rgb": 1, "opacity": 1}
+cfg.NETWORK.GAUSSIAN.ATTR_N_LAYERS                = {"rgb": 1, "opacity": 1}
 cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE           = 128
+cfg.NETWORK.GAUSSIAN.PTV3                         = EasyDict()
+cfg.NETWORK.GAUSSIAN.PTV3.STRIDE                  = (2, 2, 2, 2)
+cfg.NETWORK.GAUSSIAN.PTV3.ENC_DEPTHS              = (2, 2, 2, 6, 2)
+cfg.NETWORK.GAUSSIAN.PTV3.ENC_CHANNELS            = (32, 64, 128, 256, 512)
+cfg.NETWORK.GAUSSIAN.PTV3.ENC_N_HEAD              = (2, 4, 8, 16, 32)
+cfg.NETWORK.GAUSSIAN.PTV3.ENC_PATCH_SIZE          = (1024, 1024, 1024, 1024, 1024)
+cfg.NETWORK.GAUSSIAN.PTV3.DEC_DEPTHS              = (2, 2, 2, 2)
+cfg.NETWORK.GAUSSIAN.PTV3.DEC_CHANNELS            = (64, 64, 128, 256)
+cfg.NETWORK.GAUSSIAN.PTV3.DEC_N_HEAD              = (4, 4, 8, 16)
+cfg.NETWORK.GAUSSIAN.PTV3.DEC_PATCH_SIZE          = (1024, 1024, 1024, 1024)
+cfg.NETWORK.GAUSSIAN.PTV3.ENABLE_FLASH_ATTN       = False
 
 #
 # Train
