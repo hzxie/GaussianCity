@@ -4,7 +4,7 @@
 # @Author: Xiaoyang Wu <xiaoyang.wu.cs@gmail.com>
 # @Date:   2024-04-01 16:31:36
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-04 15:16:40
+# @Last Modified at: 2024-04-04 19:47:20
 # @Email:  root@haozhexie.com
 # Ref:
 # - https://github.com/Pointcept/PointTransformerV3/blob/main/model.py
@@ -251,13 +251,14 @@ class Serializator:
                 )
 
         # Now flatten out.
-        gray = gray.swapaxes(1, 2).reshape((-1, num_bits * num_dims))
+        # Fix: shape '[-1, 0]' is invalid for input of size 192
+        gray = gray.swapaxes(1, 2).reshape((gray.size(0), -1))
 
         # Convert Gray back to binary.
         hh_bin = self._gray2binary(gray)
 
         # Pad back out to 64 bits.
-        extra_dims = 64 - num_bits * num_dims
+        extra_dims = 64 - gray.size(1)
         padded = torch.nn.functional.pad(hh_bin, (extra_dims, 0), "constant", 0)
 
         # Convert binary values into uint8s.
