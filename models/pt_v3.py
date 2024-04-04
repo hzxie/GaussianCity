@@ -4,7 +4,7 @@
 # @Author: Xiaoyang Wu <xiaoyang.wu.cs@gmail.com>
 # @Date:   2024-04-01 16:31:36
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-02 20:25:14
+# @Last Modified at: 2024-04-04 15:16:40
 # @Email:  root@haozhexie.com
 # Ref:
 # - https://github.com/Pointcept/PointTransformerV3/blob/main/model.py
@@ -476,8 +476,9 @@ class PointSequential(PointModule):
     Alternatively, an ordered dict of modules can also be passed in.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, name="", *args, **kwargs):
         super().__init__()
+        self.name = name
         if len(args) == 1 and isinstance(args[0], collections.OrderedDict):
             for key, module in args[0].items():
                 self.add_module(key, module)
@@ -509,33 +510,35 @@ class PointSequential(PointModule):
                 raise KeyError("name exists")
         self.add_module(name, module)
 
-    def forward(self, input):
+    def forward(self, x):
         for module in self._modules.values():
             # Point module
             if isinstance(module, PointModule):
-                input = module(input)
+                x = module(x)
             # Spconv module
             elif spconv.modules.is_spconv_module(module):
-                if isinstance(input, Point):
-                    input.sparse_conv_feat = module(input.sparse_conv_feat)
-                    input.feat = input.sparse_conv_feat.features
+                if isinstance(x, Point):
+                    x.sparse_conv_feat = module(x.sparse_conv_feat)
+                    x.feat = x.sparse_conv_feat.features
                 else:
-                    input = module(input)
+                    x = module(x)
+            # Fix: Expected more than 1 value per channel when training
+            elif isinstance(module, torch.nn.BatchNorm1d) and isinstance(x, Point):
+                if x.feat.size(0) != 1:
+                    x.feat = module(x.feat)
             # PyTorch module
             else:
-                if isinstance(input, Point):
-                    input.feat = module(input.feat)
-                    if "sparse_conv_feat" in input.keys():
-                        input.sparse_conv_feat = input.sparse_conv_feat.replace_feature(
-                            input.feat
-                        )
-                elif isinstance(input, spconv.SparseConvTensor):
-                    if input.indices.shape[0] != 0:
-                        input = input.replace_feature(module(input.features))
+                if isinstance(x, Point):
+                    x.feat = module(x.feat)
+                    if "sparse_conv_feat" in x.keys():
+                        x.sparse_conv_feat = x.sparse_conv_feat.replace_feature(x.feat)
+                elif isinstance(x, spconv.SparseConvTensor):
+                    if x.indices.shape[0] != 0:
+                        x = x.replace_feature(module(x.features))
                 else:
-                    input = module(input)
+                    x = module(x)
 
-        return input
+        return x
 
 
 class PDNorm(PointModule):
@@ -1035,11 +1038,13 @@ class SerializedPooling(PointModule):
             point_dict["pooling_parent"] = point
 
         point = Point(point_dict)
-        if self.norm is not None:
+        # Fix: Expected more than 1 value per channel when training
+        if self.norm is not None and point.feat.size(0) != 1:
             point = self.norm(point)
         if self.act is not None:
             point = self.act(point)
         point.sparsify()
+
         return point
 
 
@@ -1204,12 +1209,12 @@ class PointTransformerV3(PointModule):
         enc_drop_path = [
             x.item() for x in torch.linspace(0, drop_path, sum(enc_depths))
         ]
-        self.enc = PointSequential()
+        self.enc = PointSequential(name="encoder")
         for s in range(self.num_stages):
             enc_drop_path_ = enc_drop_path[
                 sum(enc_depths[:s]) : sum(enc_depths[: s + 1])
             ]
-            enc = PointSequential()
+            enc = PointSequential(name="encoder_layer_%d" % s)
             if s > 0:
                 enc.add(
                     SerializedPooling(
@@ -1253,14 +1258,14 @@ class PointTransformerV3(PointModule):
             dec_drop_path = [
                 x.item() for x in torch.linspace(0, drop_path, sum(dec_depths))
             ]
-            self.dec = PointSequential()
+            self.dec = PointSequential(name="decoder")
             dec_channels = list(dec_channels) + [enc_channels[-1]]
             for s in reversed(range(self.num_stages - 1)):
                 dec_drop_path_ = dec_drop_path[
                     sum(dec_depths[:s]) : sum(dec_depths[: s + 1])
                 ]
                 dec_drop_path_.reverse()
-                dec = PointSequential()
+                dec = PointSequential(name="decoder_layer_%d" % s)
                 dec.add(
                     SerializedUnpooling(
                         in_channels=dec_channels[s + 1],
