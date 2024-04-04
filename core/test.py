@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:58:23
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-02 19:29:45
+# @Last Modified at: 2024-04-04 15:28:36
 # @Email:  root@haozhexie.com
 
 import logging
@@ -84,7 +84,11 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
             classes = test_data_loader.dataset.instances_to_classes(instances)
             scales = pts[:, :, [3]] * cfg.NETWORK.GAUSSIAN.SCALE_FACTOR
             scales = utils.helpers.get_point_scales(
-                scales, classes, test_data_loader.dataset.get_special_z_scale_classes()
+                scales,
+                classes,
+                test_data_loader.dataset.get_special_z_scale_classes(),
+                test_data_loader.dataset.get_bldg_classes(),
+                test_data_loader.dataset.get_bldg_scale_factor(),
             )
             onehots = utils.helpers.get_one_hot(
                 classes, test_data_loader.dataset.get_n_classes()

@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-03 15:31:43
+# @Last Modified at: 2024-04-04 15:29:34
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -31,6 +31,7 @@ cfg.DATASETS.GOOGLE_EARTH.TRAIN_CROP_SIZE         = (448, 448)
 cfg.DATASETS.GOOGLE_EARTH.TEST_CROP_SIZE          = (720, 405)
 cfg.DATASETS.GOOGLE_EARTH.TRAIN_MIN_PIXELS        = 64
 cfg.DATASETS.GOOGLE_EARTH.TRAIN_MAX_POINTS        = 16384
+cfg.DATASETS.GOOGLE_EARTH.BLDG_SCALE_FACTOR       = 0.75
 ## The following parameters should be the same as scripts/dataset_generator.py
 cfg.DATASETS.GOOGLE_EARTH.BLDG_RANGE              = [100, 32767]
 cfg.DATASETS.GOOGLE_EARTH.BLDG_FACADE_CLSID       = 2
@@ -53,6 +54,7 @@ cfg.DATASETS.CITY_SAMPLE.TRAIN_CROP_SIZE          = (448, 448)
 cfg.DATASETS.CITY_SAMPLE.TRAIN_MIN_PIXELS         = 64
 cfg.DATASETS.CITY_SAMPLE.TRAIN_MAX_POINTS         = 16384
 cfg.DATASETS.CITY_SAMPLE.TEST_CROP_SIZE           = (960, 540)
+cfg.DATASETS.CITY_SAMPLE.BLDG_SCALE_FACTOR        = 0.75
 ## The following parameters should be the same as scripts/dataset_generator.py
 cfg.DATASETS.CITY_SAMPLE.BLDG_RANGE               = [100, 5000]
 cfg.DATASETS.CITY_SAMPLE.BLDG_FACADE_CLSID        = 7
@@ -103,7 +105,7 @@ cfg.WANDB.SYNC_TENSORBOARD                        = False
 cfg.NETWORK                                       = EasyDict()
 # Gaussian
 cfg.NETWORK.GAUSSIAN                              = EasyDict()
-cfg.NETWORK.GAUSSIAN.SCALE_FACTOR                 = 0.33
+cfg.NETWORK.GAUSSIAN.SCALE_FACTOR                 = 0.75
 cfg.NETWORK.GAUSSIAN.REPEAT_PTS                   = 4
 cfg.NETWORK.GAUSSIAN.PROJ_ENCODER_OUT_DIM         = 64
 cfg.NETWORK.GAUSSIAN.N_FREQ_BANDS                 = 10

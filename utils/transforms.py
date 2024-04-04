@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 14:18:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-03 20:51:24
+# @Last Modified at: 2024-04-04 14:00:05
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -60,6 +60,9 @@ class RandomCrop(object):
         self.n_min_pixels = (
             parameters["n_min_pixels"] if "n_min_pixels" in parameters else 0
         )
+        self.n_min_points = (
+            parameters["n_min_points"] if "n_min_points" in parameters else 0
+        )
         self.n_max_points = (
             parameters["n_max_points"] if "n_max_points" in parameters else 0
         )
@@ -91,10 +94,13 @@ class RandomCrop(object):
 
             n_pixels = np.count_nonzero(mask)
             if n_pixels >= self.n_min_pixels:
-                if self.n_max_points == 0:
+                if self.n_max_points == 0 and self.n_min_points == 0:
                     break
+
                 n_points = len(np.unique(visible_pts))
-                if n_points <= self.n_max_points:
+                if (self.n_min_points == 0 or n_points >= self.n_min_points) and (
+                    self.n_max_points == 0 or n_points <= self.n_max_points
+                ):
                     break
         # else:
         #     offset_x, offset_y = None, None

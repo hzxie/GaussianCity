@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-27 16:44:02
+# @Last Modified at: 2024-04-04 15:30:23
 # @Email:  root@haozhexie.com
 
 import copy
@@ -64,6 +64,12 @@ class Dataset(torch.utils.data.Dataset):
 
     def get_special_z_scale_classes(self):
         return list(self.dataset_cfg.Z_SCALE_SPECIAL_CLASSES.values())
+
+    def get_bldg_classes(self):
+        return [self.dataset_cfg.BLDG_FACADE_CLSID]
+
+    def get_bldg_scale_factor(self):
+        return self.dataset_cfg.BLDG_SCALE_FACTOR
 
     def get_proj_size(self):
         return self.dataset_cfg.PROJ_SIZE
