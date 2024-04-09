@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:36:52
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-03 15:32:01
+# @Last Modified at: 2024-04-09 14:58:26
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -291,7 +291,7 @@ class GaussianAttrMLP(torch.nn.Module):
         if "xyz" in self.factors:
             output["xyz"] = (torch.sigmoid(output["xyz"]) - 0.5) * self.factors["xyz"]
         if "rgb" in self.factors:
-            output["rgb"] = output["rgb"] * self.factors["rgb"]
+            output["rgb"] = (torch.sigmoid(output["rgb"]) - 0.5) * self.factors["rgb"]
         if "scale" in self.factors:
             output["scale"] = 1 + output["scale"].clamp(-1, 1) * self.factors["scale"]
         if "opacity" in self.factors:

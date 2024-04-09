@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-04 15:29:34
+# @Last Modified at: 2024-04-09 14:58:55
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -112,8 +112,8 @@ cfg.NETWORK.GAUSSIAN.N_FREQ_BANDS                 = 10
 cfg.NETWORK.GAUSSIAN.Z_DIM                        = 256
 cfg.NETWORK.GAUSSIAN.MLP_HIDDEN_DIM               = 512
 cfg.NETWORK.GAUSSIAN.MLP_N_SHARED_LAYERS          = 1
-cfg.NETWORK.GAUSSIAN.ATTR_FACTORS                 = {"rgb": 1, "opacity": 1}
-cfg.NETWORK.GAUSSIAN.ATTR_N_LAYERS                = {"rgb": 1, "opacity": 1}
+cfg.NETWORK.GAUSSIAN.ATTR_FACTORS                 = {"rgb": 2}
+cfg.NETWORK.GAUSSIAN.ATTR_N_LAYERS                = {"rgb": 1}
 cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE           = 128
 cfg.NETWORK.GAUSSIAN.PTV3                         = EasyDict()
 cfg.NETWORK.GAUSSIAN.PTV3.STRIDE                  = (2, 2, 2, 2)
@@ -132,7 +132,7 @@ cfg.NETWORK.GAUSSIAN.PTV3.ENABLE_FLASH_ATTN       = False
 #
 cfg.TRAIN                                         = EasyDict()
 cfg.TRAIN.GAUSSIAN                                = EasyDict()
-cfg.TRAIN.GAUSSIAN.DATASET                        = "CITY_SAMPLE"
+cfg.TRAIN.GAUSSIAN.DATASET                        = "GOOGLE_EARTH"
 cfg.TRAIN.GAUSSIAN.BATCH_SIZE                     = 1
 cfg.TRAIN.GAUSSIAN.EPS                            = 1e-8
 cfg.TRAIN.GAUSSIAN.WEIGHT_DECAY                   = 0
@@ -159,6 +159,6 @@ cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.N_WARMUP_ITERS   = 100000
 #
 cfg.TEST                                          = EasyDict()
 cfg.TEST.GAUSSIAN                                 = EasyDict()
-cfg.TEST.GAUSSIAN.DATASET                         = "CITY_SAMPLE"
+cfg.TEST.GAUSSIAN.DATASET                         = "GOOGLE_EARTH"
 cfg.TEST.GAUSSIAN.TEST_FREQ                       = 1
 # fmt: on
