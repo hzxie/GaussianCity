@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-04 10:33:05
+# @Last Modified at: 2024-04-11 20:52:29
 # @Email:  root@haozhexie.com
 
 import logging
@@ -74,6 +74,7 @@ def train(cfg):
         gaussian_g = torch.nn.parallel.DistributedDataParallel(
             gaussian_g.to(local_rank),
             device_ids=[local_rank],
+            find_unused_parameters=True,
         )
         if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
             gaussian_d = torch.nn.parallel.DistributedDataParallel(

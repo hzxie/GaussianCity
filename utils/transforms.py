@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 14:18:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-04 14:00:05
+# @Last Modified at: 2024-04-11 20:51:46
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -155,7 +155,11 @@ class RandomInstance(object):
         if len(visible_ins) == 0:
             return data
 
-        ins = np.random.choice(visible_ins, self.n_instances, replace=False)
+        ins = (
+            np.random.choice(visible_ins, self.n_instances, replace=False)
+            if self.n_instances > 0
+            else visible_ins
+        )
         ins_mask = np.isin(data["ins"], ins)
 
         data["msk"] &= ins_mask
