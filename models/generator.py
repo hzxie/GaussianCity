@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:36:52
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-09 14:58:26
+# @Last Modified at: 2024-04-11 22:18:20
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -40,7 +40,10 @@ class Generator(torch.nn.Module):
         )
         self.ga_mlp = GaussianAttrMLP(
             n_classes,
-            cfg.NETWORK.GAUSSIAN.PTV3.DEC_CHANNELS[0],
+            2
+            * cfg.NETWORK.GAUSSIAN.PROJ_ENCODER_OUT_DIM
+            * cfg.NETWORK.GAUSSIAN.N_FREQ_BANDS
+            + cfg.NETWORK.GAUSSIAN.PTV3.DEC_CHANNELS[0],
             cfg.NETWORK.GAUSSIAN.Z_DIM,
             cfg.NETWORK.GAUSSIAN.MLP_HIDDEN_DIM,
             cfg.NETWORK.GAUSSIAN.MLP_N_SHARED_LAYERS,
@@ -56,10 +59,9 @@ class Generator(torch.nn.Module):
             .permute(0, 2, 1)
         )
         pt_feat = torch.cat([pt_feat, rel_xyz], dim=2)
-        pt_feat = self.pos_encoder(pt_feat)
-        # print(pt_feat.size())   # torch.Size([bs, n_pts, 1024]
-        pt_feat = self.pt_net(batch_idx, pt_feat, rel_xyz)
-        return self.ga_mlp(pt_feat, onehots, z)
+        pt_feat1 = self.pos_encoder(pt_feat)
+        pt_feat2 = self.pt_net(batch_idx, pt_feat1, rel_xyz)
+        return self.ga_mlp(torch.cat([pt_feat1, pt_feat2], dim=-1), onehots, z)
 
 
 class ProjectionEncoder(torch.nn.Module):
