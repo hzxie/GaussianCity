@@ -1,5 +1,7 @@
 easydict
+lxml
 numpy
+open3d
 opencv-python
 pillow
 plyfile

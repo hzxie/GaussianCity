@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-27 16:27:02
+# @Last Modified at: 2024-04-28 22:33:00
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -12,17 +12,19 @@ import csv
 import cv2
 import json
 import logging
+import lxml.etree
 import math
 import numpy as np
+import open3d
 import os
 import pickle
 import scipy.spatial.transform
+import shutil
 import sys
 import torch
 
 from PIL import Image
 from tqdm import tqdm
-
 
 PROJECT_HOME = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
 sys.path.append(PROJECT_HOME)
@@ -50,6 +52,7 @@ CLASSES = {
         "BLDG_FACADE": 7,
         "BLDG_ROOF": 8,
     },
+    # hzxie/city-dreamer/scripts/dataset_generator.py
     "GOOGLE_EARTH": {
         "NULL": 0,
         "ROAD": 1,
@@ -59,6 +62,16 @@ CLASSES = {
         "WATER": 5,
         "ZONE": 6,
         "BLDG_ROOF": 7,
+    },
+    # autonomousvision/kitti360Scripts/kitti360scripts/helpers/labels.py
+    "KITTI_360": {
+        "NULL": 0,
+        "ROAD": 1,
+        "BLDG_FACADE": 2,
+        "CAR": 3,
+        "VEGETATION": 4,
+        "SKY": 5,
+        "ZONE": 6,
     },
 }
 
@@ -79,10 +92,18 @@ SCALES = {
     "GOOGLE_EARTH": {
         "ROAD": 5,
         "BLDG_FACADE": 1,
-        "GREEN_LANDS": 5,
+        "GREEN_LANDS": 2,
         "CONSTRUCTION": 1,
         "WATER": 25,
         "ZONE": 5,
+    },
+    "KITTI_360": {
+        "ROAD": 10,
+        "BLDG_FACADE": 1,
+        "CAR": 1,
+        "VEGETATION": 2,
+        "SKY": 20,
+        "ZONE": 10,
     },
 }
 
@@ -109,9 +130,62 @@ CONSTANTS = {
         "ZOOM_LEVEL": 18,
         "SEG_MAP_PATTERN": "seg/%s_%02d.png",
     },
+    "KITTI_360": {
+        "VOXEL_SIZE": 0.25,
+        "CAR_INS_MIN_ID": 5000,
+        "SEG_MAP_PATTERN": "seg/%010d.png",
+    },
     "ROOF_INS_OFFSET": 1,
     "BLDG_INS_MIN_ID": 100,
 }
+
+
+def reorganize_kitti_360(data_dir):
+    # Reogranize the KITTI 360 by cities. Remove images without annotations.
+    output_dir = os.path.join(data_dir, "processed")
+    # Check whether the dataset has been reorganized
+    if os.path.exists(os.path.join(output_dir, "DONE")):
+        return output_dir
+
+    os.makedirs(output_dir, exist_ok=True)
+    cities = sorted(os.listdir(os.path.join(data_dir, "data_2d_raw")))
+    for c in tqdm(cities, leave=False):
+        os.makedirs(os.path.join(output_dir, c), exist_ok=True)
+        rgb_dir = os.path.join(data_dir, "data_2d_raw", c, "image_00", "data_rect")
+        seg_dir = os.path.join(
+            data_dir, "data_2d_semantics", "train", c, "image_00", "semantic"
+        )
+        # List images
+        rgb_files = os.listdir(rgb_dir)
+        seg_files = os.listdir(seg_dir)
+        with open(os.path.join(data_dir, "data_poses", c, "cam0_to_world.txt")) as fp:
+            poses = fp.read().split("\n")
+            assert poses[-1] == ""
+            poses = poses[:-1]
+
+        frames = [int(p.split(" ")[0]) for p in poses]
+        # Reorganize files
+        selected_poses = []
+        for i, f in enumerate(tqdm(frames, leave=False)):
+            f_name = "%010d.png" % f
+            if f_name not in rgb_files or f_name not in seg_files:
+                continue
+
+            selected_poses.append(poses[i])
+            os.makedirs(os.path.join(output_dir, c, "footage"), exist_ok=True)
+            os.makedirs(os.path.join(output_dir, c, "seg"), exist_ok=True)
+            shutil.copy(
+                os.path.join(rgb_dir, f_name),
+                os.path.join(output_dir, c, "footage", f_name),
+            )
+            shutil.copy(
+                os.path.join(seg_dir, f_name),
+                os.path.join(output_dir, c, "seg", f_name),
+            )
+        with open(os.path.join(output_dir, c, "cam0_to_world.txt"), "w") as fp:
+            fp.write("\n".join(selected_poses))
+
+    return output_dir
 
 
 def get_projections(dataset, city_dir, osm_dir):
@@ -119,6 +193,8 @@ def get_projections(dataset, city_dir, osm_dir):
         return _get_city_sample_projections(city_dir)
     elif dataset == "GOOGLE_EARTH":
         return _get_google_earth_projections(city_dir, osm_dir)
+    elif dataset == "KITTI_360":
+        return _get_kitti_360_projections(city_dir)
     else:
         raise Exception("Unknown dataset: %s" % (dataset))
 
@@ -429,11 +505,177 @@ def _lnglat2xy(lng, lat, resolution, zoom_level, tile_size=256, dtype=int):
     return (dtype(x * resolution), dtype(y * resolution))
 
 
+def _get_kitti_360_projections(city_dir):
+    bbox_3d_dir = os.path.join(
+        city_dir, os.pardir, os.pardir, "data_3d_bboxes", "train_full"
+    )
+    projection_dir = os.path.join(city_dir, "Projections")
+
+    city_name = os.path.basename(city_dir)
+    xml_root = lxml.etree.parse(
+        os.path.join(bbox_3d_dir, "%s.xml" % city_name)
+    ).getroot()
+    annotations = {}
+    for c in tqdm(xml_root, leave=False):
+        if c.find("transform") is None:
+            continue
+
+        fs, fe, bbox_3d = _get_kitti_360_3d_bbox_annotations(c)
+        if bbox_3d is None:
+            continue
+        key = "%010d-%010d" % (fs, fe)
+        if key not in annotations:
+            annotations[key] = []
+        annotations[key].append(bbox_3d)
+
+    points = []
+    instances = []
+    for v in tqdm(annotations.values(), leave=False):
+        p, i = _get_kitti_360_points(v)
+        points.append(p)
+        instances.append(i)
+
+    points = np.concatenate(points, axis=0)
+    instances = np.concatenate(instances, axis=0)
+    # # Debug: Voxel Visualization
+    # utils.helpers.dump_ptcloud_ply(
+    #     "/tmp/points.ply",
+    #     points,
+    #     utils.helpers.get_ins_colors(instances),
+    # )
+    metadata, projection = _get_kitti_360_projection(
+        np.concatenate([points, instances[..., np.newaxis]], axis=1)
+    )
+    return metadata, {"REST": projection}
+
+
+@utils.helpers.static_vars(
+    car_counter=CONSTANTS["KITTI_360"]["CAR_INS_MIN_ID"],
+    bldg_counter=CONSTANTS["BLDG_INS_MIN_ID"],
+)
+def _get_kitti_360_3d_bbox_annotations(xml_node):
+    KITTI_CLASSES = {
+        "road": 1,
+        "driveway": 1,
+        "building": 2,
+        "car": 3,
+        "truck": 3,
+        "vegetation": 4,
+        "sky": 5,
+        "sidewalk": 6,
+        "ground": 6,
+    }
+    frame_start = int(xml_node.find("start_frame").text)
+    frame_end = int(xml_node.find("end_frame").text)
+    is_dynamic = int(xml_node.find("dynamic").text) == 1
+
+    bbox3d = None
+    # category = xml_node.find('category').text
+    label = xml_node.find("label").text
+    if label in KITTI_CLASSES.keys() and not is_dynamic:
+        instance_id = KITTI_CLASSES[label]
+        if label in ["car"]:
+            instance_id = _get_kitti_360_3d_bbox_annotations.car_counter
+            _get_kitti_360_3d_bbox_annotations.car_counter += 1
+        elif label in ["building"]:
+            instance_id = _get_kitti_360_3d_bbox_annotations.bldg_counter
+            _get_kitti_360_3d_bbox_annotations.bldg_counter += 1
+
+        transform = _get_kitti_360_annotation_matrix(xml_node.find("transform"))
+        vertices = _get_kitti_360_annotation_matrix(xml_node.find("vertices"))
+        R = transform[:3, :3]
+        t = transform[:3, 3]
+        bbox3d = {
+            "name": xml_node.tag,
+            "instance": instance_id,
+            "vertices": np.matmul(R, vertices.transpose()).transpose() + t,
+            "faces": _get_kitti_360_annotation_matrix(xml_node.find("faces")).astype(
+                np.int32
+            ),
+        }
+    return frame_start, frame_end, bbox3d
+
+
+def _get_kitti_360_annotation_matrix(xml_node):
+    # https://github.com/autonomousvision/kitti360Scripts/blob/master/kitti360scripts/helpers/annotation.py#L111-L123
+    rows = int(xml_node.find("rows").text)
+    cols = int(xml_node.find("cols").text)
+    data = xml_node.find("data").text.split(" ")
+    mat = []
+    for d in data:
+        d = d.replace("\n", "")
+        if len(d) < 1:
+            continue
+        mat.append(float(d))
+
+    mat = np.reshape(mat, [rows, cols])
+    return mat
+
+
+def _get_kitti_360_points(bboxes):
+    voxels = np.empty((0, 3), dtype=np.int16)
+    instances = np.empty((0), dtype=np.int32)
+    for bbox in bboxes:
+        mesh = open3d.geometry.TriangleMesh()
+        mesh.vertices = open3d.utility.Vector3dVector(bbox["vertices"])
+        mesh.triangles = open3d.utility.Vector3iVector(bbox["faces"])
+        volume = open3d.geometry.VoxelGrid()
+        volume = volume.create_from_triangle_mesh(
+            mesh, voxel_size=CONSTANTS["KITTI_360"]["VOXEL_SIZE"]
+        )
+        _voxels = np.array([v.grid_index for v in volume.get_voxels()])
+        # Recover the absolute position of voxels
+        min_x = np.min(bbox["vertices"][:, 0]) / CONSTANTS["KITTI_360"]["VOXEL_SIZE"]
+        min_y = np.min(bbox["vertices"][:, 1]) / CONSTANTS["KITTI_360"]["VOXEL_SIZE"]
+        min_z = np.min(bbox["vertices"][:, 2]) / CONSTANTS["KITTI_360"]["VOXEL_SIZE"]
+        if min_z < 0:
+            logging.warning(
+                "Ignore annotation %s due to incorrect annotations (min_z = %.2f)."
+                % (bbox["name"], min_z)
+            )
+            continue
+
+        _voxels[:, 0] += int(min_x)
+        _voxels[:, 1] += int(min_y)
+        _voxels[:, 2] += int(min_z)
+        voxels = np.concatenate([voxels, _voxels], axis=0)
+        instances = np.concatenate(
+            [instances, [bbox["instance"]] * len(_voxels)], axis=0
+        )
+    return voxels, instances
+
+
+def _get_kitti_360_projection(points):
+    x_min, x_max = np.min(points[:, 0]), np.max(points[:, 0])
+    y_min, y_max = np.min(points[:, 1]), np.max(points[:, 1])
+    z_min = np.min(points[:, 2])
+
+    ins_map = np.zeros((y_max - y_min + 1, x_max - x_min + 1), dtype=np.int16)
+    tpd_hf = np.zeros_like(ins_map)
+    for p in tqdm(points, leave=False):
+        x, y, z, i = p
+        _x, _y, _z = x - x_min, y - y_min, z - z_min
+        if tpd_hf[_y, _x] < _z:
+            tpd_hf[_y, _x] = _z
+            ins_map[_y, _x] = i
+
+    seg_map = _get_kitti_360_seg_map(ins_map)
+    return {"bounds": {"xmin": x_min, "ymin": y_min, "zmin": z_min}}, {
+        "PTS": _get_point_maps(seg_map, CLASSES["KITTI_360"], SCALES["KITTI_360"]),
+        "INS": ins_map,
+        "SEG": seg_map,
+        "TD_HF": tpd_hf,
+        "BU_HF": np.zeros_like(tpd_hf),
+    }
+
+
 def get_seg_map_from_ins_map(dataset, ins_map):
     if dataset == "CITY_SAMPLE":
         return _get_city_sample_seg_map(ins_map)
     elif dataset == "GOOGLE_EARTH":
         return _get_google_earth_seg_map(ins_map)
+    elif dataset == "KITTI_360":
+        return _get_kitti_360_seg_map(ins_map)
     else:
         raise Exception("Unknown dataset: %s" % (dataset))
 
@@ -458,6 +700,17 @@ def _get_google_earth_seg_map(ins_map):
         np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))
     ] = CLASSES["GOOGLE_EARTH"]["BLDG_ROOF"]
     ins_map[ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]] = CLASSES["GOOGLE_EARTH"][
+        "BLDG_FACADE"
+    ]
+    return ins_map
+
+
+def _get_kitti_360_seg_map(ins_map):
+    ins_map = ins_map.copy()
+    ins_map[ins_map >= CONSTANTS["KITTI_360"]["CAR_INS_MIN_ID"]] = CLASSES["KITTI_360"][
+        "CAR"
+    ]
+    ins_map[ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]] = CLASSES["KITTI_360"][
         "BLDG_FACADE"
     ]
     return ins_map
@@ -555,11 +808,33 @@ def get_centers_from_projections(projections):
     return centers
 
 
+def get_seg_ins_relations(dataset):
+    return {
+        # BLDG
+        "ROOF_INS_OFFSET": CONSTANTS["ROOF_INS_OFFSET"],
+        "BLDG_INS_MIN_ID": CONSTANTS["BLDG_INS_MIN_ID"],
+        "BLDG_FACADE_SEMANTIC_ID": CLASSES[dataset]["BLDG_FACADE"],
+        # BLDG_ROOF (not used in KITTI-360)
+        "BLDG_ROOF_SEMANTIC_ID": CLASSES[dataset]["BLDG_ROOF"]
+        if "BLDG_ROOF" in CLASSES[dataset]
+        else CLASSES[dataset]["BLDG_FACADE"],
+        # CAR (not used in Google-Earth)
+        "CAR_INS_MIN_ID": CONSTANTS[dataset]["CAR_INS_MIN_ID"]
+        if "CAR_INS_MIN_ID" in CONSTANTS[dataset]
+        else 32767,
+        "CAR_SEMANTIC_ID": CLASSES[dataset]["CAR"]
+        if "CAR" in CLASSES[dataset]
+        else 32767,
+    }
+
+
 def get_camera_parameters(dataset, city_dir, metadata):
     if dataset == "CITY_SAMPLE":
         return get_city_sample_camera_parameters(city_dir)
     elif dataset == "GOOGLE_EARTH":
         return get_google_earth_camera_parameters(city_dir, metadata)
+    elif dataset == "KITTI_360":
+        return get_kitti_360_camera_parameters(city_dir, metadata)
     else:
         raise Exception("Unknown dataset: %s" % (dataset))
 
@@ -657,6 +932,10 @@ def _get_quat_from_look_at(cam_pos, cam_look_at):
     up_vec = np.cross(fwd_vec, right_vec)
     R = np.stack([fwd_vec, right_vec, up_vec], axis=1)
     return scipy.spatial.transform.Rotation.from_matrix(R).as_quat()
+
+
+def get_kitti_360_camera_parameters(city_dir, metadata):
+    pass
 
 
 def save_camera_poses(output_file_path, cam_poses):
@@ -791,14 +1070,14 @@ def _get_rotation(points):
 
 
 def get_points_from_projections(
-    projections, classes, scales, seg_ins_map, water_z, local_cords=None
+    projections, classes, scales, seg_ins_relation, water_z, local_cords=None
 ):
     # XYZ, Scale, Instance ID
     points = np.empty((0, 5), dtype=np.int16)
     for c, p in projections.items():
         # Ignore bottom points for objects in the rest maps due to invisibility.
         _points = _get_points_from_projection(
-            p, classes, scales, seg_ins_map, local_cords, c != "REST"
+            p, classes, scales, seg_ins_relation, local_cords, c != "REST"
         )
         if _points is not None:
             points = np.concatenate((points, _points), axis=0)
@@ -807,7 +1086,7 @@ def get_points_from_projections(
                 % (c, len(_points), np.min(_points), np.max(_points))
             )
         # Move the water plane to -3.5m, which is aligned with CitySample.
-        if c == "REST":
+        if c == "REST" and "WATER" in classes:
             points[:, 2][points[:, 4] == classes["WATER"]] = water_z
 
     logging.debug("#Points: %d" % (len(points)))
@@ -815,7 +1094,12 @@ def get_points_from_projections(
 
 
 def _get_points_from_projection(
-    projection, classes, scales, seg_ins_map, local_cords=None, include_btm_pts=True
+    projection,
+    classes,
+    scales,
+    seg_ins_relation,
+    local_cords=None,
+    include_btm_pts=True,
 ):
     _projection = projection
     if local_cords is not None:
@@ -847,7 +1131,7 @@ def _get_points_from_projection(
         include_btm_pts,
         {v: k for k, v in classes.items()},
         scales,
-        seg_ins_map,
+        seg_ins_relation,
         np.ascontiguousarray(_projection["INS"].astype(np.int16)),
         np.ascontiguousarray(_projection["TD_HF"].astype(np.int16)),
         np.ascontiguousarray(_projection["BU_HF"].astype(np.int16)),
@@ -992,13 +1276,19 @@ def get_visible_points(
 
 
 def main(dataset, data_dir, osm_dir, is_debug):
-    assert dataset in ["GOOGLE_EARTH", "CITY_SAMPLE"], "Unknown dataset: %s" % dataset
+    assert dataset in ["GOOGLE_EARTH", "KITTI_360", "CITY_SAMPLE"], (
+        "Unknown dataset: %s" % dataset
+    )
+
+    if dataset == "KITTI_360":
+        logging.info("Reorganzing the KITTI 360 dataset ...")
+        data_dir = reorganize_kitti_360(data_dir)
 
     cities = sorted(os.listdir(data_dir))
     for c_idx, city in enumerate(tqdm(cities)):
         logging.info("Generating point projections...")
         city_dir = os.path.join(data_dir, city)
-        # The metadata is only used for the GOOGLE_EARTH dataset
+        # The metadata is used for the GOOGLE_EARTH and KITTI_360 dataset
         metadata, projections = get_projections(dataset, city_dir, osm_dir)
 
         logging.info("Saving projections...")
@@ -1024,36 +1314,23 @@ def main(dataset, data_dir, osm_dir, is_debug):
                 pickle.dump(centers, fp)
 
         # Construct the relationship between instance ID and semantic ID
-        seg_ins_map = {
-            # BLDG
-            "ROOF_INS_OFFSET": CONSTANTS["ROOF_INS_OFFSET"],
-            "BLDG_INS_MIN_ID": CONSTANTS["BLDG_INS_MIN_ID"],
-            "BLDG_FACADE_SEMANTIC_ID": CLASSES[dataset]["BLDG_FACADE"],
-            "BLDG_ROOF_SEMANTIC_ID": CLASSES[dataset]["BLDG_ROOF"],
-            # CAR
-            "CAR_INS_MIN_ID": CONSTANTS[dataset]["CAR_INS_MIN_ID"]
-            if "CAR_INS_MIN_ID" in CONSTANTS[dataset]
-            else 32767,
-            "CAR_SEMANTIC_ID": CLASSES[dataset]["CAR"]
-            if "CAR" in CLASSES[dataset]
-            else 32767,
-        }
-        # # Debug: Generate all initial points (casues OOM in rasterization)
-        # logging.info("Generate the initial points for the whole city...")
-        # # points[:, M] -> 0:3: XYZ, 3: Scale, 4: Instance ID
-        # points = get_points_from_projections(
-        #     projections,
-        #     CLASSES[dataset],
-        #     SCALES[dataset],
-        #     seg_ins_map,
-        #     CONSTANTS[dataset]["WATER_Z"],
-        # )
+        seg_ins_relation = get_seg_ins_relations(dataset)
+        # Debug: Generate all initial points (casues OOM in rasterization)
+        logging.info("Generate the initial points for the whole city...")
+        # points[:, M] -> 0:3: XYZ, 3: Scale, 4: Instance ID
+        points = get_points_from_projections(
+            projections,
+            CLASSES[dataset],
+            SCALES[dataset],
+            seg_ins_relation,
+            CONSTANTS[dataset]["WATER_Z"] if "WATER_Z" in CONSTANTS[dataset] else 0,
+        )
 
-        # # Debug: Point Cloud Visualization
-        # logging.info("Saving the generated point cloud...")
-        # xyz = points[:, :3]
-        # rgbs = utils.helpers.get_ins_colors(points[:, 4])
-        # utils.helpers.dump_ptcloud_ply("/tmp/points.ply", xyz, rgbs)
+        # Debug: Point Cloud Visualization
+        logging.info("Saving the generated point cloud...")
+        xyz = points[:, :3]
+        rgbs = utils.helpers.get_ins_colors(points[:, 4])
+        utils.helpers.dump_ptcloud_ply("/tmp/points.ply", xyz, rgbs)
 
         # Load camera parameters
         cam_rig, cam_poses = get_camera_parameters(dataset, city_dir, metadata)
@@ -1109,7 +1386,7 @@ def main(dataset, data_dir, osm_dir, is_debug):
                 projections,
                 CLASSES[dataset],
                 SCALES[dataset],
-                seg_ins_map,
+                seg_ins_relation,
                 CONSTANTS[dataset]["WATER_Z"],
                 view_frustum_cords,
             )
