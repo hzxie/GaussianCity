@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-28 22:33:00
+# @Last Modified at: 2024-04-30 15:06:24
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -72,6 +72,7 @@ CLASSES = {
         "VEGETATION": 4,
         "SKY": 5,
         "ZONE": 6,
+        "BLDG_ROOF": 7,
     },
 }
 
@@ -92,6 +93,7 @@ SCALES = {
     "GOOGLE_EARTH": {
         "ROAD": 5,
         "BLDG_FACADE": 1,
+        "BLDG_ROOF": 1,
         "GREEN_LANDS": 2,
         "CONSTRUCTION": 1,
         "WATER": 25,
@@ -100,6 +102,7 @@ SCALES = {
     "KITTI_360": {
         "ROAD": 10,
         "BLDG_FACADE": 1,
+        "BLDG_ROOF": 1,
         "CAR": 1,
         "VEGETATION": 2,
         "SKY": 20,
@@ -118,6 +121,7 @@ CONSTANTS = {
         "IMAGE_HEIGHT": 1080,
         "CAR_INS_MIN_ID": 5000,
         "SEG_MAP_PATTERN": "SemanticImage/%sSequence.%04d.png",
+        "OUT_FILE_NAME_PATTERN": "%04d",
     },
     "GOOGLE_EARTH": {
         "SCALE": 1,
@@ -129,11 +133,17 @@ CONSTANTS = {
         "IMAGE_HEIGHT": 540,
         "ZOOM_LEVEL": 18,
         "SEG_MAP_PATTERN": "seg/%s_%02d.png",
+        "OUT_FILE_NAME_PATTERN": "%04d",
     },
     "KITTI_360": {
+        "SCALE": 1,
+        "MAP_SIZE": 0,
         "VOXEL_SIZE": 0.25,
+        "PATCH_SIZE": 512,
+        "PROJECTION_SIZE": 2048,
         "CAR_INS_MIN_ID": 5000,
         "SEG_MAP_PATTERN": "seg/%010d.png",
+        "OUT_FILE_NAME_PATTERN": "%010d",
     },
     "ROOF_INS_OFFSET": 1,
     "BLDG_INS_MIN_ID": 100,
@@ -159,9 +169,7 @@ def reorganize_kitti_360(data_dir):
         rgb_files = os.listdir(rgb_dir)
         seg_files = os.listdir(seg_dir)
         with open(os.path.join(data_dir, "data_poses", c, "cam0_to_world.txt")) as fp:
-            poses = fp.read().split("\n")
-            assert poses[-1] == ""
-            poses = poses[:-1]
+            poses = fp.read().splitlines()
 
         frames = [int(p.split(" ")[0]) for p in poses]
         # Reorganize files
@@ -509,8 +517,6 @@ def _get_kitti_360_projections(city_dir):
     bbox_3d_dir = os.path.join(
         city_dir, os.pardir, os.pardir, "data_3d_bboxes", "train_full"
     )
-    projection_dir = os.path.join(city_dir, "Projections")
-
     city_name = os.path.basename(city_dir)
     xml_root = lxml.etree.parse(
         os.path.join(bbox_3d_dir, "%s.xml" % city_name)
@@ -655,6 +661,11 @@ def _get_kitti_360_projection(points):
     for p in tqdm(points, leave=False):
         x, y, z, i = p
         _x, _y, _z = x - x_min, y - y_min, z - z_min
+        if i == CLASSES["KITTI_360"]["ROAD"]:
+            _z -= SCALES["KITTI_360"]["ROAD"]
+        elif i == CLASSES["KITTI_360"]["ZONE"]:
+            _z -= SCALES["KITTI_360"]["ZONE"]
+            continue
         if tpd_hf[_y, _x] < _z:
             tpd_hf[_y, _x] = _z
             ins_map[_y, _x] = i
@@ -710,6 +721,9 @@ def _get_kitti_360_seg_map(ins_map):
     ins_map[ins_map >= CONSTANTS["KITTI_360"]["CAR_INS_MIN_ID"]] = CLASSES["KITTI_360"][
         "CAR"
     ]
+    ins_map[
+        np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))
+    ] = CLASSES["KITTI_360"]["BLDG_ROOF"]
     ins_map[ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]] = CLASSES["KITTI_360"][
         "BLDG_FACADE"
     ]
@@ -814,10 +828,7 @@ def get_seg_ins_relations(dataset):
         "ROOF_INS_OFFSET": CONSTANTS["ROOF_INS_OFFSET"],
         "BLDG_INS_MIN_ID": CONSTANTS["BLDG_INS_MIN_ID"],
         "BLDG_FACADE_SEMANTIC_ID": CLASSES[dataset]["BLDG_FACADE"],
-        # BLDG_ROOF (not used in KITTI-360)
-        "BLDG_ROOF_SEMANTIC_ID": CLASSES[dataset]["BLDG_ROOF"]
-        if "BLDG_ROOF" in CLASSES[dataset]
-        else CLASSES[dataset]["BLDG_FACADE"],
+        "BLDG_ROOF_SEMANTIC_ID": CLASSES[dataset]["BLDG_ROOF"],
         # CAR (not used in Google-Earth)
         "CAR_INS_MIN_ID": CONSTANTS[dataset]["CAR_INS_MIN_ID"]
         if "CAR_INS_MIN_ID" in CONSTANTS[dataset]
@@ -935,7 +946,51 @@ def _get_quat_from_look_at(cam_pos, cam_look_at):
 
 
 def get_kitti_360_camera_parameters(city_dir, metadata):
-    pass
+    # Ref: https://github.com/autonomousvision/kitti360Scripts/blob/master/kitti360scripts/helpers/project.py#L96
+    # Intrinsic matrix
+    cam_rig = {"intrinsics": [], "sensor_size": []}
+    cam_calib_dir = os.path.join(city_dir, os.pardir, os.pardir, "calibration")
+    with open(os.path.join(cam_calib_dir, "perspective.txt")) as f:
+        lines = f.read().splitlines()
+
+    for line in lines:
+        line = line.split(" ")
+        if line[0] == "P_rect_00:":
+            cam_rig["intrinsics"] = (
+                np.array([float(x) for x in line[1:]]).reshape((3, 4))[:3, :3].flatten()
+            )
+        elif line[0] == "S_rect_00:":
+            cam_rig["sensor_size"] = [int(float(line[1])), int(float(line[2]))]
+
+    # Extrinsic matrix
+    camera_poses = []
+    camera_frames = np.loadtxt(os.path.join(city_dir, "cam0_to_world.txt"))
+    for cf in tqdm(camera_frames):
+        f_idx = int(cf[0])
+        Rt = cf[1:].reshape((4, 4))
+        # R -> [Right | Down | Forward]
+        R = Rt[:3, :3]
+        # R -> [Forward | Right | Up]
+        R = R[:, [2, 0, 1]]
+        # R[:, -1] *= -1
+        quat = scipy.spatial.transform.Rotation.from_matrix(R).as_quat()
+        t = Rt[:3, 3]
+        camera_poses.append(
+            {
+                "id": f_idx,
+                "tx": t[0] / CONSTANTS["KITTI_360"]["VOXEL_SIZE"]
+                - metadata["bounds"]["xmin"],
+                "ty": t[1] / CONSTANTS["KITTI_360"]["VOXEL_SIZE"]
+                - metadata["bounds"]["ymin"],
+                "tz": t[2] / CONSTANTS["KITTI_360"]["VOXEL_SIZE"]
+                - metadata["bounds"]["zmin"],
+                "qx": quat[0],
+                "qy": quat[1],
+                "qz": quat[2],
+                "qw": quat[3],
+            }
+        )
+    return cam_rig, camera_poses
 
 
 def save_camera_poses(output_file_path, cam_poses):
@@ -1246,7 +1301,7 @@ def get_visible_points(
     # Scale the volume by 0.33 to reduce the memory usage
     if reduce_mem:
         SCALE_FACTOR = 1 / 3.0
-        cam_pos = cam_pos.copy() * SCALE_FACTOR
+        cam_pos *= SCALE_FACTOR
         scales = (scales * SCALE_FACTOR).clamp(min=1).short()
         points = torch.floor(points * SCALE_FACTOR).short()
 
@@ -1256,17 +1311,17 @@ def get_visible_points(
     cam_pos -= offsets
     cam_look_at = utils.helpers.get_camera_look_at(cam_pos, cam_quat)
     vp_map = _get_ray_voxel_intersection(cam_rig, cam_pos, cam_look_at, volume)
-    # Image.fromarray(
-    #     utils.helpers.get_ins_seg_map.r_palatte[vp_map.cpu().numpy() % 16384],
-    # ).save("output/test.jpg")
+    Image.fromarray(
+        utils.helpers.get_ins_seg_map.r_palatte[vp_map.cpu().numpy() % 16384],
+    ).save("output/test1.jpg")
 
     # Generate the instance segmentation map as a side product
     ins_map = instances[vp_map]
     null_mask = vp_map == -1
     ins_map[null_mask] = null_class_id
-    # Image.fromarray(
-    #     utils.helpers.get_ins_seg_map.r_palatte[ins_map.cpu().numpy()],
-    # ).save("output/test.jpg")
+    Image.fromarray(
+        utils.helpers.get_ins_seg_map.r_palatte[ins_map.cpu().numpy()],
+    ).save("output/test2.jpg")
 
     # Manually release the memory to avoid OOM
     del volume
@@ -1295,14 +1350,18 @@ def main(dataset, data_dir, osm_dir, is_debug):
         proj_dir = os.path.join(city_dir, "Projection")
         dump_projections(projections, proj_dir, is_debug)
 
-        # # Debug: Load projection caches without computing
+        # Debug: Load projection caches without computing
         # with open("/tmp/projections.pkl", "wb") as fp:
         #     pickle.dump(projections, fp)
+        # with open("/tmp/metadata.pkl", "wb") as fp:
+        #     pickle.dump(metadata, fp)
         # logging.info("loading projections...")
         # proj_dir = os.path.join(city_dir, "Projection")
         # projections = load_projections(proj_dir)
         # with open("/tmp/projections.pkl", "rb") as fp:
         #     projections = pickle.load(fp)
+        # with open("/tmp/metadata.pkl", "rb") as fp:
+        #     metadata = pickle.load(fp)
 
         logging.info("Calculate the XY center for instances...")
         if os.path.exists(os.path.join(city_dir, "CENTERS.pkl")):
@@ -1315,27 +1374,27 @@ def main(dataset, data_dir, osm_dir, is_debug):
 
         # Construct the relationship between instance ID and semantic ID
         seg_ins_relation = get_seg_ins_relations(dataset)
-        # Debug: Generate all initial points (casues OOM in rasterization)
-        logging.info("Generate the initial points for the whole city...")
-        # points[:, M] -> 0:3: XYZ, 3: Scale, 4: Instance ID
-        points = get_points_from_projections(
-            projections,
-            CLASSES[dataset],
-            SCALES[dataset],
-            seg_ins_relation,
-            CONSTANTS[dataset]["WATER_Z"] if "WATER_Z" in CONSTANTS[dataset] else 0,
-        )
+        # # Debug: Generate all initial points (casues OOM in rasterization)
+        # logging.info("Generate the initial points for the whole city...")
+        # # points[:, M] -> 0:3: XYZ, 3: Scale, 4: Instance ID
+        # points = get_points_from_projections(
+        #     projections,
+        #     CLASSES[dataset],
+        #     SCALES[dataset],
+        #     seg_ins_relation,
+        #     CONSTANTS[dataset]["WATER_Z"] if "WATER_Z" in CONSTANTS[dataset] else 0,
+        # )
 
-        # Debug: Point Cloud Visualization
-        logging.info("Saving the generated point cloud...")
-        xyz = points[:, :3]
-        rgbs = utils.helpers.get_ins_colors(points[:, 4])
-        utils.helpers.dump_ptcloud_ply("/tmp/points.ply", xyz, rgbs)
+        # # Debug: Point Cloud Visualization
+        # logging.info("Saving the generated point cloud...")
+        # xyz = points[:, :3]
+        # rgbs = utils.helpers.get_ins_colors(points[:, 4])
+        # utils.helpers.dump_ptcloud_ply("/tmp/points.ply", xyz, rgbs)
 
         # Load camera parameters
         cam_rig, cam_poses = get_camera_parameters(dataset, city_dir, metadata)
         # Save the camera parameters for the GoogleEarth dataset
-        if dataset == "GOOGLE_EARTH":
+        if dataset in ["GOOGLE_EARTH", "KITTI_360"]:
             save_camera_poses(os.path.join(city_dir, "CameraPoses.csv"), cam_poses)
 
         # Initialize the gaussian rasterizer
@@ -1371,10 +1430,9 @@ def main(dataset, data_dir, osm_dir, is_debug):
                     cam_pos,
                     cam_look_at,
                     CONSTANTS[dataset]["PATCH_SIZE"],
-                    # TODO: 1.5 -> 2.0. But 2.0 causes incomplete rendering.
-                    fov_x / 1.5,
+                    fov_x / 2,
                 )
-                if dataset == "CITY_SAMPLE"
+                if dataset in ["CITY_SAMPLE", "KITTI_360"]
                 else None
             )
             local_projections = get_local_projections(
@@ -1387,11 +1445,11 @@ def main(dataset, data_dir, osm_dir, is_debug):
                 CLASSES[dataset],
                 SCALES[dataset],
                 seg_ins_relation,
-                CONSTANTS[dataset]["WATER_Z"],
+                CONSTANTS[dataset]["WATER_Z"] if "WATER_Z" in CONSTANTS[dataset] else 0,
                 view_frustum_cords,
             )
             # Generate sky points for the CitySample dataset
-            if dataset == "CITY_SAMPLE":
+            if dataset in ["CITY_SAMPLE", "KITTI_360"]:
                 sky_points = get_sky_points(
                     view_frustum_cords[1:3],
                     cam_pos[2],
@@ -1408,7 +1466,7 @@ def main(dataset, data_dir, osm_dir, is_debug):
                 points,
                 scales,
                 cam_rig,
-                cam_pos,
+                cam_pos.copy(),
                 cam_quat,
                 CLASSES[dataset]["NULL"],
                 dataset == "CITY_SAMPLE",
@@ -1454,18 +1512,27 @@ def main(dataset, data_dir, osm_dir, is_debug):
             #     )
 
             Image.fromarray(ins_map.astype(np.uint16)).save(
-                os.path.join(city_instance_map_dir, "%04d.png" % int(r["id"]))
+                os.path.join(
+                    city_instance_map_dir,
+                    "%s.png"
+                    % (CONSTANTS[dataset]["OUT_FILE_NAME_PATTERN"] % int(r["id"])),
+                )
+            )
+            seg_file_name = (
+                CONSTANTS[dataset]["SEG_MAP_PATTERN"] % (city, int(r["id"]))
+                if dataset in ["CITY_SAMPLE", "GOOGLE_EARTH"]
+                else CONSTANTS[dataset]["SEG_MAP_PATTERN"] % int(r["id"])
             )
             seg_map = np.array(
-                Image.open(
-                    os.path.join(
-                        city_dir,
-                        CONSTANTS[dataset]["SEG_MAP_PATTERN"] % (city, int(r["id"])),
-                    )
-                ).convert("P")
+                Image.open(os.path.join(city_dir, seg_file_name)).convert("P")
             )
             with open(
-                os.path.join(city_points_dir, "%04d.pkl" % int(r["id"])), "wb"
+                os.path.join(
+                    city_points_dir,
+                    "%s.pkl"
+                    % (CONSTANTS[dataset]["OUT_FILE_NAME_PATTERN"] % int(r["id"])),
+                ),
+                "wb",
             ) as fp:
                 pickle.dump(
                     {
