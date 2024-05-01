@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-01 18:06:25
+# @Last Modified at: 2024-05-02 00:28:10
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -72,7 +72,6 @@ CLASSES = {
         "VEGETATION": 4,
         "SKY": 5,
         "ZONE": 6,
-        "BLDG_ROOF": 7,
     },
 }
 
@@ -101,10 +100,9 @@ SCALES = {
     },
     "KITTI_360": {
         "ROAD": 10,
-        "BLDG_FACADE": 4,
-        "BLDG_ROOF": 4,
+        "BLDG_FACADE": 2,
         "CAR": 1,
-        "VEGETATION": 4,
+        "VEGETATION": 2,
         "SKY": 25,
         "ZONE": 10,
     },
@@ -119,6 +117,7 @@ CONSTANTS = {
         "PROJECTION_SIZE": 2048,
         "IMAGE_WIDTH": 1920,
         "IMAGE_HEIGHT": 1080,
+        "ROOF_INS_OFFSET": 1,
         "CAR_INS_MIN_ID": 5000,
         "SEG_MAP_PATTERN": "SemanticImage/%sSequence.%04d.png",
         "OUT_FILE_NAME_PATTERN": "%04d",
@@ -132,6 +131,7 @@ CONSTANTS = {
         "IMAGE_WIDTH": 960,
         "IMAGE_HEIGHT": 540,
         "ZOOM_LEVEL": 18,
+        "ROOF_INS_OFFSET": 1,
         "SEG_MAP_PATTERN": "seg/%s_%02d.png",
         "OUT_FILE_NAME_PATTERN": "%04d",
     },
@@ -142,10 +142,10 @@ CONSTANTS = {
         "PATCH_SIZE": 1280,
         "PROJECTION_SIZE": 2048,
         "CAR_INS_MIN_ID": 5000,
+        "ROOF_INS_OFFSET": 0,
         "SEG_MAP_PATTERN": "seg/%010d.png",
         "OUT_FILE_NAME_PATTERN": "%010d",
     },
-    "ROOF_INS_OFFSET": 1,
     "BLDG_INS_MIN_ID": 100,
 }
 
@@ -669,8 +669,8 @@ def _get_kitti_360_points(bboxes):
         min_z = np.min(bbox["vertices"][:, 2]) / CONSTANTS["KITTI_360"]["VOXEL_SIZE"]
         if min_z < 0:
             logging.warning(
-                "Ignore annotation %s due to incorrect annotations (min_z = %.2f)."
-                % (bbox["name"], min_z)
+                "Ignore annotation %s due to incorrect annotations (%.2f, %.2f, %.2f)."
+                % (bbox["name"], min_x, min_y, min_z)
             )
             continue
 
@@ -726,7 +726,9 @@ def _get_kitti_360_merged_projections(metadata, projections):
         x_max = max(x_max, v["bounds"]["xmin"] + projections[k]["TD_HF"].shape[1])
         y_max = max(y_max, v["bounds"]["ymin"] + projections[k]["TD_HF"].shape[0])
 
-    merged_metadata = {"bounds": {"xmin": x_min, "ymin": y_min, "zmin": z_min}}
+    merged_metadata = {
+        "bounds": {"xmin": int(x_min), "ymin": int(y_min), "zmin": int(z_min)}
+    }
     merged_projections = {}
     h, w = y_max - y_min + 1, x_max - x_min + 1
     for k, v in projections.items():
@@ -793,9 +795,6 @@ def _get_kitti_360_seg_map(ins_map):
     ins_map[ins_map >= CONSTANTS["KITTI_360"]["CAR_INS_MIN_ID"]] = CLASSES["KITTI_360"][
         "CAR"
     ]
-    ins_map[
-        np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))
-    ] = CLASSES["KITTI_360"]["BLDG_ROOF"]
     ins_map[ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]] = CLASSES["KITTI_360"][
         "BLDG_FACADE"
     ]
@@ -897,10 +896,12 @@ def get_centers_from_projections(projections):
 def get_seg_ins_relations(dataset):
     return {
         # BLDG
-        "ROOF_INS_OFFSET": CONSTANTS["ROOF_INS_OFFSET"],
         "BLDG_INS_MIN_ID": CONSTANTS["BLDG_INS_MIN_ID"],
+        "ROOF_INS_OFFSET": CONSTANTS[dataset]["ROOF_INS_OFFSET"],
         "BLDG_FACADE_SEMANTIC_ID": CLASSES[dataset]["BLDG_FACADE"],
-        "BLDG_ROOF_SEMANTIC_ID": CLASSES[dataset]["BLDG_ROOF"],
+        "BLDG_ROOF_SEMANTIC_ID": CLASSES[dataset]["BLDG_ROOF"]
+        if "BLDG_ROOF" in CLASSES[dataset]
+        else CLASSES[dataset]["BLDG_FACADE"],
         # CAR (not used in Google-Earth)
         "CAR_INS_MIN_ID": CONSTANTS[dataset]["CAR_INS_MIN_ID"]
         if "CAR_INS_MIN_ID" in CONSTANTS[dataset]
@@ -1139,14 +1140,33 @@ def get_local_projections(projections, local_cords, map_size):
         )
         # Crop the image
         x_min, x_max, y_min, y_max = _get_crop(points)
+        points -= [x_min, y_min]
         for m in MAPS:
             m_name = m["name"]
             m_type = m["dtype"]
+            # Fix: _src.total() > 0 in function 'warpPerspective'
+            # if x_min < 0:
+            #     local_projections[m_name] = np.pad(
+            #         local_projections[m_name],
+            #         ((0, 0), (-x_min, 0)),
+            #         mode="constant",
+            #         constant_values=0,
+            #     )
+            #     x_max -= x_min
+            #     x_min = 0
+            # if y_min < 0:
+            #     local_projections[m_name] = np.pad(
+            #         local_projections[m_name],
+            #         ((-y_min, 0), (0, 0)),
+            #         mode="constant",
+            #         constant_values=0,
+            #     )
+            #     y_max -= y_min
+            #     y_min = 0
             local_projections[m_name] = local_projections[m_name][
                 y_min:y_max, x_min:x_max
             ].astype(m_type)
 
-        points -= [x_min, y_min]
         # Rotate the image
         M, width, height = _get_rotation(points)
         # The top-left point of the local projection
@@ -1422,19 +1442,17 @@ def main(dataset, data_dir, osm_dir, is_debug):
         logging.info("Saving projections...")
         proj_dir = os.path.join(city_dir, "Projection")
         dump_projections(projections, proj_dir, is_debug)
+        if metadata is not None:
+            with open(os.path.join(proj_dir, "metadata.json"), "w") as fp:
+                json.dump(metadata, fp)
 
         # # Debug: Load projection caches without computing
-        # with open("/tmp/projections.pkl", "wb") as fp:
-        #     pickle.dump(projections, fp)
-        # with open("/tmp/metadata.pkl", "wb") as fp:
-        #     pickle.dump(metadata, fp)
         # logging.info("loading projections...")
         # proj_dir = os.path.join(city_dir, "Projection")
         # projections = load_projections(proj_dir)
-        # with open("/tmp/projections.pkl", "rb") as fp:
-        #     projections = pickle.load(fp)
-        # with open("/tmp/metadata.pkl", "rb") as fp:
-        #     metadata = pickle.load(fp)
+        # if os.path.exists(os.path.join(proj_dir, "metadata.json")):
+        #     with open(os.path.join(proj_dir, "metadata.json"), "r") as fp:
+        #         metadata = json.load(fp)
 
         logging.info("Calculate the XY center for instances...")
         if os.path.exists(os.path.join(city_dir, "CENTERS.pkl")):
@@ -1562,8 +1580,8 @@ def main(dataset, data_dir, osm_dir, is_debug):
             vp_map = np.searchsorted(vp_idx, vp_map)
             assert np.max(vp_map) == len(points) - 1
             assert len(np.unique(vp_map)) == len(points)
-            # Debug: Render Instance Map with Gaussian Splatting
-            # Revert the cx value for the KITTI 360 dataset. Otherwise, the image cannot be aligned perfectly.
+            # # Debug: Render Instance Map with Gaussian Splatting
+            # # Revert the cx value for the KITTI 360 dataset. Otherwise, the image cannot be aligned perfectly.
             # if dataset == "KITTI_360":
             #     cam_rig["intrinsics"][2] = cam_rig["sensor_size"][0] - cam_rig["intrinsics"][2]
             # scales = scales[vp_idx]
