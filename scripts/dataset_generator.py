@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-30 15:06:24
+# @Last Modified at: 2024-05-01 18:06:25
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -101,11 +101,11 @@ SCALES = {
     },
     "KITTI_360": {
         "ROAD": 10,
-        "BLDG_FACADE": 1,
-        "BLDG_ROOF": 1,
+        "BLDG_FACADE": 4,
+        "BLDG_ROOF": 4,
         "CAR": 1,
-        "VEGETATION": 2,
-        "SKY": 20,
+        "VEGETATION": 4,
+        "SKY": 25,
         "ZONE": 10,
     },
 }
@@ -138,8 +138,8 @@ CONSTANTS = {
     "KITTI_360": {
         "SCALE": 1,
         "MAP_SIZE": 0,
-        "VOXEL_SIZE": 0.25,
-        "PATCH_SIZE": 512,
+        "VOXEL_SIZE": 0.1,
+        "PATCH_SIZE": 1280,
         "PROJECTION_SIZE": 2048,
         "CAR_INS_MIN_ID": 5000,
         "SEG_MAP_PATTERN": "seg/%010d.png",
@@ -186,14 +186,36 @@ def reorganize_kitti_360(data_dir):
                 os.path.join(rgb_dir, f_name),
                 os.path.join(output_dir, c, "footage", f_name),
             )
-            shutil.copy(
-                os.path.join(seg_dir, f_name),
-                os.path.join(output_dir, c, "seg", f_name),
+            # shutil.copy(
+            #     os.path.join(seg_dir, f_name),
+            #     os.path.join(output_dir, c, "seg", f_name),
+            # )
+            # Rewrite the semantic maps with the defined classes
+            # https://github.com/autonomousvision/kitti360Scripts/blob/master/kitti360scripts/helpers/labels.py
+            seg_map = np.array(Image.open(os.path.join(seg_dir, f_name)).convert("P"))
+            seg_map = _get_kitti_360_remapped_semantic_map(seg_map)
+            utils.helpers.get_seg_map(seg_map).save(
+                os.path.join(output_dir, c, "seg", f_name)
             )
+
         with open(os.path.join(output_dir, c, "cam0_to_world.txt"), "w") as fp:
             fp.write("\n".join(selected_poses))
 
     return output_dir
+
+
+def _get_kitti_360_remapped_semantic_map(seg_map):
+    MAPPER = {
+        7: CLASSES["KITTI_360"]["ROAD"],  # road
+        11: CLASSES["KITTI_360"]["BLDG_FACADE"],  # building
+        26: CLASSES["KITTI_360"]["CAR"],  # car
+        27: CLASSES["KITTI_360"]["CAR"],  # truck
+        21: CLASSES["KITTI_360"]["VEGETATION"],  # vegetation
+        23: CLASSES["KITTI_360"]["SKY"],  # sky
+        6: CLASSES["KITTI_360"]["ZONE"],  # ground
+        8: CLASSES["KITTI_360"]["ZONE"],  # sidewalk
+    }
+    return np.vectorize(lambda x: MAPPER.get(x, CLASSES["KITTI_360"]["NULL"]))(seg_map)
 
 
 def get_projections(dataset, city_dir, osm_dir):
@@ -549,10 +571,21 @@ def _get_kitti_360_projections(city_dir):
     #     points,
     #     utils.helpers.get_ins_colors(instances),
     # )
-    metadata, projection = _get_kitti_360_projection(
-        np.concatenate([points, instances[..., np.newaxis]], axis=1)
+    vegt_rows = instances == CLASSES["KITTI_360"]["VEGETATION"]
+    rest_rows = ~vegt_rows
+    vegt_metadata, vegt_projection = _get_kitti_360_projection(
+        np.concatenate([points[vegt_rows], instances[vegt_rows, np.newaxis]], axis=1)
     )
-    return metadata, {"REST": projection}
+    rest_metadata, rest_projection = _get_kitti_360_projection(
+        np.concatenate([points[rest_rows], instances[rest_rows, np.newaxis]], axis=1)
+    )
+
+    # vegt_projection and rest_projection may have different sizes, which should be unified.
+    metadata, projections = _get_kitti_360_merged_projections(
+        {"VEGT": vegt_metadata, "REST": rest_metadata},
+        {"VEGT": vegt_projection, "REST": rest_projection},
+    )
+    return metadata, projections
 
 
 @utils.helpers.static_vars(
@@ -561,15 +594,15 @@ def _get_kitti_360_projections(city_dir):
 )
 def _get_kitti_360_3d_bbox_annotations(xml_node):
     KITTI_CLASSES = {
-        "road": 1,
-        "driveway": 1,
-        "building": 2,
-        "car": 3,
-        "truck": 3,
-        "vegetation": 4,
-        "sky": 5,
-        "sidewalk": 6,
-        "ground": 6,
+        "road": CLASSES["KITTI_360"]["ROAD"],
+        "driveway": CLASSES["KITTI_360"]["ROAD"],
+        "building": CLASSES["KITTI_360"]["BLDG_FACADE"],
+        "car": CLASSES["KITTI_360"]["CAR"],
+        "truck": CLASSES["KITTI_360"]["CAR"],
+        "vegetation": CLASSES["KITTI_360"]["VEGETATION"],
+        "sky": CLASSES["KITTI_360"]["SKY"],
+        "sidewalk": CLASSES["KITTI_360"]["ZONE"],
+        "ground": CLASSES["KITTI_360"]["ZONE"],
     }
     frame_start = int(xml_node.find("start_frame").text)
     frame_end = int(xml_node.find("end_frame").text)
@@ -619,8 +652,8 @@ def _get_kitti_360_annotation_matrix(xml_node):
 
 
 def _get_kitti_360_points(bboxes):
-    voxels = np.empty((0, 3), dtype=np.int16)
-    instances = np.empty((0), dtype=np.int32)
+    voxels = []
+    instances = []
     for bbox in bboxes:
         mesh = open3d.geometry.TriangleMesh()
         mesh.vertices = open3d.utility.Vector3dVector(bbox["vertices"])
@@ -644,11 +677,10 @@ def _get_kitti_360_points(bboxes):
         _voxels[:, 0] += int(min_x)
         _voxels[:, 1] += int(min_y)
         _voxels[:, 2] += int(min_z)
-        voxels = np.concatenate([voxels, _voxels], axis=0)
-        instances = np.concatenate(
-            [instances, [bbox["instance"]] * len(_voxels)], axis=0
-        )
-    return voxels, instances
+        voxels.append(_voxels)
+        instances.append([bbox["instance"]] * len(_voxels))
+
+    return np.concatenate(voxels, axis=0), np.concatenate(instances, axis=0)
 
 
 def _get_kitti_360_projection(points):
@@ -658,6 +690,7 @@ def _get_kitti_360_projection(points):
 
     ins_map = np.zeros((y_max - y_min + 1, x_max - x_min + 1), dtype=np.int16)
     tpd_hf = np.zeros_like(ins_map)
+    btu_hf = np.iinfo(points.dtype).max * np.ones_like(ins_map)
     for p in tqdm(points, leave=False):
         x, y, z, i = p
         _x, _y, _z = x - x_min, y - y_min, z - z_min
@@ -665,10 +698,12 @@ def _get_kitti_360_projection(points):
             _z -= SCALES["KITTI_360"]["ROAD"]
         elif i == CLASSES["KITTI_360"]["ZONE"]:
             _z -= SCALES["KITTI_360"]["ZONE"]
-            continue
+
         if tpd_hf[_y, _x] < _z:
             tpd_hf[_y, _x] = _z
             ins_map[_y, _x] = i
+        if btu_hf[_y, _x] > _z:
+            btu_hf[_y, _x] = _z
 
     seg_map = _get_kitti_360_seg_map(ins_map)
     return {"bounds": {"xmin": x_min, "ymin": y_min, "zmin": z_min}}, {
@@ -676,8 +711,45 @@ def _get_kitti_360_projection(points):
         "INS": ins_map,
         "SEG": seg_map,
         "TD_HF": tpd_hf,
-        "BU_HF": np.zeros_like(tpd_hf),
+        "BU_HF": btu_hf,
     }
+
+
+def _get_kitti_360_merged_projections(metadata, projections):
+    # Determine the image bound according to the metadata
+    x_min, y_min, z_min = np.inf, np.inf, np.inf
+    x_max, y_max = -np.inf, -np.inf
+    for k, v in metadata.items():
+        x_min = min(x_min, v["bounds"]["xmin"])
+        y_min = min(y_min, v["bounds"]["ymin"])
+        z_min = min(z_min, v["bounds"]["zmin"])
+        x_max = max(x_max, v["bounds"]["xmin"] + projections[k]["TD_HF"].shape[1])
+        y_max = max(y_max, v["bounds"]["ymin"] + projections[k]["TD_HF"].shape[0])
+
+    merged_metadata = {"bounds": {"xmin": x_min, "ymin": y_min, "zmin": z_min}}
+    merged_projections = {}
+    h, w = y_max - y_min + 1, x_max - x_min + 1
+    for k, v in projections.items():
+        _h, _w = v["TD_HF"].shape
+        _y, _x = (
+            metadata[k]["bounds"]["ymin"] - y_min,
+            metadata[k]["bounds"]["xmin"] - x_min,
+        )
+        _z = metadata[k]["bounds"]["zmin"] - z_min
+        merged_projections[k] = {
+            "PTS": np.zeros((h, w), dtype=bool),
+            "INS": np.zeros((h, w), dtype=np.int16),
+            "SEG": np.zeros((h, w), dtype=np.int16),
+            "TD_HF": np.zeros((h, w), dtype=np.int16),
+            "BU_HF": np.zeros((h, w), dtype=np.int16),
+        }
+        merged_projections[k]["PTS"][_y : _y + _h, _x : _x + _w] = v["PTS"]
+        merged_projections[k]["INS"][_y : _y + _h, _x : _x + _w] = v["INS"]
+        merged_projections[k]["SEG"][_y : _y + _h, _x : _x + _w] = v["SEG"]
+        merged_projections[k]["TD_HF"][_y : _y + _h, _x : _x + _w] = v["TD_HF"] + _z
+        merged_projections[k]["BU_HF"][_y : _y + _h, _x : _x + _w] = v["BU_HF"]
+
+    return merged_metadata, merged_projections
 
 
 def get_seg_map_from_ins_map(dataset, ins_map):
@@ -749,7 +821,7 @@ def dump_projections(projections, output_dir, is_debug):
 
 
 def load_projections(output_dir):
-    CATEGORIES = ["CAR", "FWY", "REST"]
+    CATEGORIES = ["CAR", "FWY", "VEGT", "REST"]
     MAP_NAMES = ["INS", "SEG", "TD_HF", "BU_HF", "PTS"]
 
     projections = {}
@@ -924,7 +996,6 @@ def get_google_earth_camera_parameters(city_dir, metadata):
                 "qw": quat[3],
             }
         )
-
     return cam_rig, camera_poses
 
 
@@ -961,6 +1032,8 @@ def get_kitti_360_camera_parameters(city_dir, metadata):
             )
         elif line[0] == "S_rect_00:":
             cam_rig["sensor_size"] = [int(float(line[1])), int(float(line[2]))]
+    # Fix cx because the coordinate system is mirrored
+    cam_rig["intrinsics"][2] = cam_rig["sensor_size"][0] - cam_rig["intrinsics"][2]
 
     # Extrinsic matrix
     camera_poses = []
@@ -1275,8 +1348,8 @@ def _get_ray_voxel_intersection(cam_rig, cam_position, cam_look_at, volume):
         torch.tensor([0, 0, 1], dtype=torch.float32),
         cam_rig["intrinsics"][0],
         [
-            cam_rig["sensor_size"][1] / 2,
-            cam_rig["sensor_size"][0] / 2,
+            cam_rig["intrinsics"][5],
+            cam_rig["intrinsics"][2],
         ],
         [cam_rig["sensor_size"][1], cam_rig["sensor_size"][0]],
         N_MAX_SAMPLES,
@@ -1311,17 +1384,17 @@ def get_visible_points(
     cam_pos -= offsets
     cam_look_at = utils.helpers.get_camera_look_at(cam_pos, cam_quat)
     vp_map = _get_ray_voxel_intersection(cam_rig, cam_pos, cam_look_at, volume)
-    Image.fromarray(
-        utils.helpers.get_ins_seg_map.r_palatte[vp_map.cpu().numpy() % 16384],
-    ).save("output/test1.jpg")
+    # Image.fromarray(
+    #     utils.helpers.get_ins_seg_map.r_palatte[vp_map.cpu().numpy() % 16384],
+    # ).save("output/test.jpg")
 
     # Generate the instance segmentation map as a side product
     ins_map = instances[vp_map]
     null_mask = vp_map == -1
     ins_map[null_mask] = null_class_id
-    Image.fromarray(
-        utils.helpers.get_ins_seg_map.r_palatte[ins_map.cpu().numpy()],
-    ).save("output/test2.jpg")
+    # Image.fromarray(
+    #     utils.helpers.get_ins_seg_map.r_palatte[ins_map.cpu().numpy()],
+    # ).save("output/test.jpg")
 
     # Manually release the memory to avoid OOM
     del volume
@@ -1350,7 +1423,7 @@ def main(dataset, data_dir, osm_dir, is_debug):
         proj_dir = os.path.join(city_dir, "Projection")
         dump_projections(projections, proj_dir, is_debug)
 
-        # Debug: Load projection caches without computing
+        # # Debug: Load projection caches without computing
         # with open("/tmp/projections.pkl", "wb") as fp:
         #     pickle.dump(projections, fp)
         # with open("/tmp/metadata.pkl", "wb") as fp:
@@ -1459,9 +1532,8 @@ def main(dataset, data_dir, osm_dir, is_debug):
                     CLASSES[dataset]["SKY"],
                 )
                 points = np.concatenate((points, sky_points), axis=0)
-
+            # Generate the instance segmentation map as a side product
             scales = utils.helpers.get_point_scales(points[:, [3]], points[:, [4]])
-            # Generate the instance segmentation map as a side product.
             vp_map, ins_map = get_visible_points(
                 points,
                 scales,
@@ -1471,6 +1543,9 @@ def main(dataset, data_dir, osm_dir, is_debug):
                 CLASSES[dataset]["NULL"],
                 dataset == "CITY_SAMPLE",
             )
+            if dataset == "KITTI_360":
+                ins_map = np.fliplr(ins_map)
+
             vp_idx = np.sort(np.unique(vp_map))
             vp_idx = vp_idx[vp_idx >= 0]
             # Remove the points that are not visible in the current view.
@@ -1487,11 +1562,17 @@ def main(dataset, data_dir, osm_dir, is_debug):
             vp_map = np.searchsorted(vp_idx, vp_map)
             assert np.max(vp_map) == len(points) - 1
             assert len(np.unique(vp_map)) == len(points)
-            # # Debug: Render Instance Map with Gaussian Splatting
+            # Debug: Render Instance Map with Gaussian Splatting
+            # Revert the cx value for the KITTI 360 dataset. Otherwise, the image cannot be aligned perfectly.
+            # if dataset == "KITTI_360":
+            #     cam_rig["intrinsics"][2] = cam_rig["sensor_size"][0] - cam_rig["intrinsics"][2]
             # scales = scales[vp_idx]
             # import extensions.diff_gaussian_rasterization as dgr
             # gr = dgr.GaussianRasterizerWrapper(
             #     np.array(cam_rig["intrinsics"], dtype=np.float32).reshape((3, 3)),
+            #     cam_rig["sensor_size"],
+            #     flip_lr=True,
+            #     flip_ud=dataset == "KITTI_360",
             #     device=torch.device("cuda"),
             # )
             # with torch.no_grad():
@@ -1510,7 +1591,6 @@ def main(dataset, data_dir, osm_dir, is_debug):
             #         "output/test.jpg",
             #         img.permute(1, 2, 0).cpu().numpy()[..., ::-1] * 255,
             #     )
-
             Image.fromarray(ins_map.astype(np.uint16)).save(
                 os.path.join(
                     city_instance_map_dir,

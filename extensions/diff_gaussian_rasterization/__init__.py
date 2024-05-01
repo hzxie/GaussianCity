@@ -4,7 +4,7 @@
 # @Author: Inria <george.drettakis@inria.fr>
 # @Date:   2024-01-31 19:07:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-17 16:39:09
+# @Last Modified at: 2024-05-01 14:14:49
 # @Email:  root@haozhexie.com
 
 import math
@@ -278,14 +278,25 @@ class GaussianRasterizerWrapper(torch.nn.Module):
     #
     # This class is a wrapper for the GaussianRasterizer class.
     # It is used to port for the GaussianCity project.
-    def __init__(self, K, z_near=0.01, z_far=50000.0, device=torch.device("cuda")):
+    def __init__(
+        self,
+        K,
+        sensor_size,
+        flip_lr=True,
+        flip_ud=False,
+        z_near=0.01,
+        z_far=50000.0,
+        device=torch.device("cuda"),
+    ):
         super(GaussianRasterizerWrapper, self).__init__()
-        self.K = K
+        self.flip_lr = flip_lr
+        self.flip_ud = flip_ud
         self.z_near = z_near
         self.z_far = z_far
         self.device = device
         # Shared camera parameters
-        self.sensor_size = (int(K[0, 2]) * 2, int(K[1, 2]) * 2)  # (w, h)
+        self.K = K
+        self.sensor_size = sensor_size
         self.fov_x, self.fov_y = self._intrinsic_to_fov()
         self.P = self._get_projection_matrix()
 
@@ -407,6 +418,9 @@ class GaussianRasterizerWrapper(torch.nn.Module):
             rotations=quaternion,
             cov3D_precomp=None,
         )
-        # Horizontally flip the rendered image
-        # Left-handed coordinate system to right-handed coordinate system
-        return torch.flip(rendered_image, dims=[2])
+        if self.flip_lr:
+            rendered_image = torch.flip(rendered_image, dims=[2])
+        if self.flip_ud:
+            rendered_image = torch.flip(rendered_image, dims=[1])
+
+        return rendered_image
