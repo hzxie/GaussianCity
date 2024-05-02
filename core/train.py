@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-11 20:52:29
+# @Last Modified at: 2024-05-02 19:13:37
 # @Email:  root@haozhexie.com
 
 import logging
@@ -138,7 +138,9 @@ def train(cfg):
 
     # Set up the GaussianRasterizer
     gr = dgr.GaussianRasterizerWrapper(
-        train_dataset.get_K(),
+        K=train_dataset.get_K(),
+        sensor_size=train_dataset.get_sensor_size(),
+        flip_ud=train_dataset.is_flip_ud(),
         device=gaussian_g.device,
     )
 
@@ -214,8 +216,6 @@ def train(cfg):
                 scales,
                 classes,
                 train_dataset.get_special_z_scale_classes(),
-                train_dataset.get_bldg_classes(),
-                train_dataset.get_bldg_scale_factor(),
             )
             onehots = utils.helpers.get_one_hot(classes, train_dataset.get_n_classes())
             z = utils.helpers.get_z(instances, cfg.NETWORK.GAUSSIAN.Z_DIM)

@@ -4,10 +4,11 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-04 15:30:23
+# @Last Modified at: 2024-05-02 21:37:11
 # @Email:  root@haozhexie.com
 
 import copy
+import json
 import numpy as np
 import os
 import torch
@@ -23,6 +24,8 @@ def get_dataset(cfg, dataset_name, split):
         return CitySampleDataset(cfg, split)
     elif dataset_name == "GOOGLE_EARTH":
         return GoogleDataset(cfg, split)
+    elif dataset_name == "KITTI_360":
+        return Kitti360Dataset(cfg, split)
     else:
         raise Exception("Unknown dataset: %s" % dataset_name)
 
@@ -59,17 +62,17 @@ class Dataset(torch.utils.data.Dataset):
     def get_K(self):
         return np.array(self.dataset_cfg.CAM_K, dtype=np.float32).reshape((3, 3))
 
+    def get_sensor_size(self):
+        return self.dataset_cfg.SENSOR_SIZE
+
+    def is_flip_ud(self):
+        return self.dataset_cfg.FLIP_UD
+
     def get_n_classes(self):
         return self.dataset_cfg.N_CLASSES
 
     def get_special_z_scale_classes(self):
         return list(self.dataset_cfg.Z_SCALE_SPECIAL_CLASSES.values())
-
-    def get_bldg_classes(self):
-        return [self.dataset_cfg.BLDG_FACADE_CLSID]
-
-    def get_bldg_scale_factor(self):
-        return self.dataset_cfg.BLDG_SCALE_FACTOR
 
     def get_proj_size(self):
         return self.dataset_cfg.PROJ_SIZE
@@ -322,6 +325,84 @@ class GoogleDataset(Dataset):
         )
 
 
+class Kitti360Dataset(Dataset):
+    def __init__(self, cfg, split):
+        super(Kitti360Dataset, self).__init__(cfg.DATASETS.KITTI_360, split)
+        self.cfg = cfg
+        self.renderings = self._get_renderings(cfg.DATASETS.KITTI_360, split)
+        self.n_renderings = len(self.renderings)
+
+    def instances_to_classes(self, instances):
+        # Make it compatible in both numpy and PyTorch
+        cfg = self.cfg.DATASETS.KITTI_360
+        bldg_facade_idx = (instances >= cfg.BLDG_RANGE[0]) & (
+            instances < cfg.BLDG_RANGE[1]
+        )
+        car_idx = (instances >= cfg.CAR_RANGE[0]) & (instances < cfg.CAR_RANGE[1])
+
+        classes = copy.deepcopy(instances)
+        classes[bldg_facade_idx] = cfg.BLDG_FACADE_CLSID
+        classes[car_idx] = cfg.CAR_CLSID
+        return classes
+
+    def _get_renderings(self, cfg, split):
+        if os.path.exists(cfg.VIEW_INDEX_FILE):
+            with open(cfg.VIEW_INDEX_FILE, "r") as fp:
+                view_idx = json.load(fp)
+        else:
+            view_idx = {}
+            cities = sorted(os.listdir(cfg.DIR))
+            for c in cities:
+                pts_dir = os.path.join(cfg.DIR, c, "Points")
+                if os.path.exists(pts_dir):
+                    view_idx[c] = [int(f[:-4]) for f in sorted(os.listdir(pts_dir))]
+            with open(cfg.VIEW_INDEX_FILE, "w") as fp:
+                json.dump(view_idx, fp, indent=2)
+
+        files = [
+            {
+                "name": "%s/%010d" % (c, i),
+                # Camera parameters
+                "Rt": os.path.join(cfg.DIR, c, "CameraPoses.csv"),
+                # The XY centers of the instances
+                "centers": os.path.join(cfg.DIR, c, "CENTERS.pkl"),
+                "rgb": os.path.join(
+                    cfg.DIR,
+                    c,
+                    "footage",
+                    "%010d.png" % i,
+                ),
+                "seg": os.path.join(
+                    cfg.DIR,
+                    c,
+                    "seg",
+                    "%010d.png" % i,
+                ),
+                "ins": os.path.join(
+                    cfg.DIR,
+                    c,
+                    "InstanceImage",
+                    "%010d.png" % i,
+                ),
+                # Projection
+                "proj/hf": os.path.join(cfg.DIR, c, "Projection", "REST-TD_HF.png"),
+                "proj/seg": os.path.join(cfg.DIR, c, "Projection", "REST-SEG.png"),
+                # Precomputed Points in the viewpoint (scripts/dataset_generator.py)
+                "pts": os.path.join(cfg.DIR, c, "Points", "%010d.pkl" % i),
+            }
+            for c, v in view_idx.items()
+            for i in v
+        ]
+        if cfg.PIN_MEMORY:
+            self.pin_memory(files, cfg.PIN_MEMORY)
+
+        return (
+            files
+            if split == "train"
+            else [f for i, f in enumerate(files) if i % 1000 == 0]
+        )
+
+
 class CitySampleDataset(Dataset):
     def __init__(self, cfg, split):
         super(CitySampleDataset, self).__init__(cfg.DATASETS.CITY_SAMPLE, split)
@@ -343,7 +424,6 @@ class CitySampleDataset(Dataset):
             & (instances % 2 == 1)
         )
         car_idx = (instances >= cfg.CAR_RANGE[0]) & (instances < cfg.CAR_RANGE[1])
-
         classes = copy.deepcopy(instances)
         classes[bldg_facade_idx] = cfg.BLDG_FACADE_CLSID
         classes[bldg_roof_idx] = cfg.BLDG_ROOF_CLSID

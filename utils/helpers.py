@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-04 15:30:05
+# @Last Modified at: 2024-05-02 21:37:24
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -200,9 +200,7 @@ def get_projection_uv(xyz, proj_tlp, proj_aff_mat, proj_size):
     return proj_uv * 2 - 1
 
 
-def get_point_scales(
-    scales, classes, special_z_scale_classes=[], bldg_classes=[], bldg_factor=0.75
-):
+def get_point_scales(scales, classes, special_z_scale_classes=[]):
     if isinstance(scales, np.ndarray):
         scales = torch.from_numpy(scales)
     if isinstance(classes, np.ndarray):
@@ -210,12 +208,13 @@ def get_point_scales(
 
     repeat = [1 for _ in scales.size()]
     repeat[-1] = 3
-    scales[
-        torch.isin(
-            classes.squeeze(dim=-1),
-            torch.tensor(list(bldg_classes), device=classes.device),
-        )
-    ] * bldg_factor
+    # Apply special scale factors for BLDGs
+    # scales[
+    #     torch.isin(
+    #         classes.squeeze(dim=-1),
+    #         torch.tensor(list(bldg_classes), device=classes.device),
+    #     )
+    # ] * bldg_factor
     scales_3d = torch.ones_like(scales).repeat(repeat) * scales
     # Set the z-scale = 1 for roads, zones, and waters
     scales_3d[..., 2][

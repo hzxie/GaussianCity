@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-09 14:58:55
+# @Last Modified at: 2024-05-02 21:40:30
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -21,9 +21,6 @@ cfg.DATASETS                                      = EasyDict()
 cfg.DATASETS.GOOGLE_EARTH                         = EasyDict()
 cfg.DATASETS.GOOGLE_EARTH.DIR                     = "./data/google-earth"
 cfg.DATASETS.GOOGLE_EARTH.PIN_MEMORY              = ["Rt", "centers"]
-cfg.DATASETS.GOOGLE_EARTH.CAM_K                   = [1528.1469407006614, 0, 480, 0, 1528.1469407006614, 270, 0, 0, 1]
-cfg.DATASETS.GOOGLE_EARTH.N_CLASSES               = 8
-cfg.DATASETS.GOOGLE_EARTH.PROJ_SIZE               = (2048, 2048)
 cfg.DATASETS.GOOGLE_EARTH.N_REPEAT                = 1            # 1
 cfg.DATASETS.GOOGLE_EARTH.N_CITIES                = 400          # 400
 cfg.DATASETS.GOOGLE_EARTH.N_VIEWS                 = 60           # 60
@@ -31,21 +28,45 @@ cfg.DATASETS.GOOGLE_EARTH.TRAIN_CROP_SIZE         = (448, 448)
 cfg.DATASETS.GOOGLE_EARTH.TEST_CROP_SIZE          = (720, 405)
 cfg.DATASETS.GOOGLE_EARTH.TRAIN_MIN_PIXELS        = 64
 cfg.DATASETS.GOOGLE_EARTH.TRAIN_MAX_POINTS        = 16384
-cfg.DATASETS.GOOGLE_EARTH.BLDG_SCALE_FACTOR       = 0.75
 ## The following parameters should be the same as scripts/dataset_generator.py
-cfg.DATASETS.GOOGLE_EARTH.BLDG_RANGE              = [100, 32767]
+cfg.DATASETS.GOOGLE_EARTH.CAM_K                   = [1528.1469407006614, 0, 480, 0, 1528.1469407006614, 270, 0, 0, 1]
+cfg.DATASETS.GOOGLE_EARTH.SENSOR_SIZE             = (960, 540)
+cfg.DATASETS.GOOGLE_EARTH.FLIP_UD                 = False
+cfg.DATASETS.GOOGLE_EARTH.N_CLASSES               = 8
+cfg.DATASETS.GOOGLE_EARTH.PROJ_SIZE               = (2048, 2048)
+cfg.DATASETS.GOOGLE_EARTH.BLDG_RANGE              = [100, 32768]
 cfg.DATASETS.GOOGLE_EARTH.BLDG_FACADE_CLSID       = 2
 cfg.DATASETS.GOOGLE_EARTH.BLDG_ROOF_CLSID         = 7
 cfg.DATASETS.GOOGLE_EARTH.Z_SCALE_SPECIAL_CLASSES = {"ROAD": 1, "WATER": 5, "ZONE": 6}
 cfg.DATASETS.GOOGLE_EARTH.MAP_SIZE                = 2048
 cfg.DATASETS.GOOGLE_EARTH.SCALE                   = 1
+# The KITTI-360 Dataset Config
+cfg.DATASETS.KITTI_360                            = EasyDict()
+cfg.DATASETS.KITTI_360.DIR                        = "./data/kitti-360/processed"
+cfg.DATASETS.KITTI_360.PIN_MEMORY                 = ["Rt", "centers"]
+cfg.DATASETS.KITTI_360.N_REPEAT                   = 1
+cfg.DATASETS.KITTI_360.VIEW_INDEX_FILE            = "./data/kitti-360/views.json"
+cfg.DATASETS.KITTI_360.TRAIN_CROP_SIZE            = (336, 336)
+cfg.DATASETS.KITTI_360.TEST_CROP_SIZE             = (704, 376)
+cfg.DATASETS.KITTI_360.TRAIN_MIN_PIXELS           = 64
+cfg.DATASETS.KITTI_360.TRAIN_MAX_POINTS           = 16384
+## The following parameters should be the same as scripts/dataset_generator.py
+cfg.DATASETS.KITTI_360.CAM_K                      = [552.554261, 0, 682.049453, 0, 552.554261, 238.769549, 0, 0, 1]
+cfg.DATASETS.KITTI_360.SENSOR_SIZE                = (1408, 376)
+cfg.DATASETS.KITTI_360.FLIP_UD                    = True
+cfg.DATASETS.KITTI_360.N_CLASSES                  = 7
+cfg.DATASETS.KITTI_360.PROJ_SIZE                  = (2048, 2048)
+cfg.DATASETS.KITTI_360.BLDG_RANGE                 = [100, 5000]
+cfg.DATASETS.KITTI_360.BLDG_FACADE_CLSID          = 2
+cfg.DATASETS.KITTI_360.CAR_RANGE                  = [5000, 16384]
+cfg.DATASETS.KITTI_360.CAR_CLSID                  = 3
+cfg.DATASETS.KITTI_360.Z_SCALE_SPECIAL_CLASSES    = {"ROAD": 1, "ZONE": 6}
+cfg.DATASETS.KITTI_360.MAP_SIZE                   = 2048
+cfg.DATASETS.KITTI_360.SCALE                      = 1
 # The CitySample Dataset Config
 cfg.DATASETS.CITY_SAMPLE                          = EasyDict()
 cfg.DATASETS.CITY_SAMPLE.DIR                      = "./data/city-sample"
 cfg.DATASETS.CITY_SAMPLE.PIN_MEMORY               = ["Rt", "centers"]
-cfg.DATASETS.CITY_SAMPLE.CAM_K                    = [2828.2831640142235, 0, 960, 0, 2828.2831640142235, 540, 0, 0, 1]
-cfg.DATASETS.CITY_SAMPLE.N_CLASSES                = 9
-cfg.DATASETS.CITY_SAMPLE.PROJ_SIZE                = (2048, 2048)
 cfg.DATASETS.CITY_SAMPLE.N_REPEAT                 = 1            # 1
 cfg.DATASETS.CITY_SAMPLE.N_CITIES                 = 1            # 10
 cfg.DATASETS.CITY_SAMPLE.N_VIEWS                  = 3000         # 3000
@@ -54,8 +75,12 @@ cfg.DATASETS.CITY_SAMPLE.TRAIN_CROP_SIZE          = (448, 448)
 cfg.DATASETS.CITY_SAMPLE.TRAIN_MIN_PIXELS         = 64
 cfg.DATASETS.CITY_SAMPLE.TRAIN_MAX_POINTS         = 16384
 cfg.DATASETS.CITY_SAMPLE.TEST_CROP_SIZE           = (960, 540)
-cfg.DATASETS.CITY_SAMPLE.BLDG_SCALE_FACTOR        = 0.75
 ## The following parameters should be the same as scripts/dataset_generator.py
+cfg.DATASETS.CITY_SAMPLE.CAM_K                    = [2828.2831640142235, 0, 960, 0, 2828.2831640142235, 540, 0, 0, 1]
+cfg.DATASETS.CITY_SAMPLE.SENSOR_SIZE              = (1920, 1080)
+cfg.DATASETS.CITY_SAMPLE.FLIP_UD                  = False
+cfg.DATASETS.CITY_SAMPLE.N_CLASSES                = 9
+cfg.DATASETS.CITY_SAMPLE.PROJ_SIZE                = (2048, 2048)
 cfg.DATASETS.CITY_SAMPLE.BLDG_RANGE               = [100, 5000]
 cfg.DATASETS.CITY_SAMPLE.BLDG_FACADE_CLSID        = 7
 cfg.DATASETS.CITY_SAMPLE.BLDG_ROOF_CLSID          = 8
@@ -64,6 +89,7 @@ cfg.DATASETS.CITY_SAMPLE.CAR_CLSID                = 3
 cfg.DATASETS.CITY_SAMPLE.Z_SCALE_SPECIAL_CLASSES  = {"ROAD": 1, "WATER": 4, "ZONE": 6}
 cfg.DATASETS.CITY_SAMPLE.MAP_SIZE                 = 24576
 cfg.DATASETS.CITY_SAMPLE.SCALE                    = 20
+cfg.DATASETS.CITY_SAMPLE.BLDG_SCALE_FACTOR        = 0.75
 
 #
 # Constants
