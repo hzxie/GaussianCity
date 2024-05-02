@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-02 00:28:10
+# @Last Modified at: 2024-05-02 08:50:58
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -1145,24 +1145,24 @@ def get_local_projections(projections, local_cords, map_size):
             m_name = m["name"]
             m_type = m["dtype"]
             # Fix: _src.total() > 0 in function 'warpPerspective'
-            # if x_min < 0:
-            #     local_projections[m_name] = np.pad(
-            #         local_projections[m_name],
-            #         ((0, 0), (-x_min, 0)),
-            #         mode="constant",
-            #         constant_values=0,
-            #     )
-            #     x_max -= x_min
-            #     x_min = 0
-            # if y_min < 0:
-            #     local_projections[m_name] = np.pad(
-            #         local_projections[m_name],
-            #         ((-y_min, 0), (0, 0)),
-            #         mode="constant",
-            #         constant_values=0,
-            #     )
-            #     y_max -= y_min
-            #     y_min = 0
+            if x_min < 0:
+                local_projections[m_name] = np.pad(
+                    local_projections[m_name],
+                    ((0, 0), (-x_min, 0)),
+                    mode="constant",
+                    constant_values=0,
+                )
+                x_max -= x_min
+                x_min = 0
+            if y_min < 0:
+                local_projections[m_name] = np.pad(
+                    local_projections[m_name],
+                    ((-y_min, 0), (0, 0)),
+                    mode="constant",
+                    constant_values=0,
+                )
+                y_max -= y_min
+                y_min = 0
             local_projections[m_name] = local_projections[m_name][
                 y_min:y_max, x_min:x_max
             ].astype(m_type)
@@ -1258,6 +1258,13 @@ def _get_points_from_projection(
         max_x = math.ceil(np.max(local_cords[:, 0]))
         min_y = math.floor(np.min(local_cords[:, 1]))
         max_y = math.ceil(np.max(local_cords[:, 1]))
+        # Fix: negative index is not supported. Also aligned with the operations in get_local_projections()
+        if min_x < 0:
+            max_x -= min_x
+            min_x = 0
+        if min_y < 0:
+            max_y -= min_y
+            min_y = 0
 
         _projection = {}
         for c, p in projection.items():
