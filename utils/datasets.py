@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-02 21:37:11
+# @Last Modified at: 2024-05-03 20:05:46
 # @Email:  root@haozhexie.com
 
 import copy
@@ -108,7 +108,6 @@ class Dataset(torch.utils.data.Dataset):
             if "centers" in self.memcached
             else utils.io.IO.get(rendering["centers"])
         )
-
         rgb = np.array(utils.io.IO.get(rendering["rgb"]), dtype=np.float32)
         rgb = rgb / 255.0 * 2 - 1
         seg = np.array(utils.io.IO.get(rendering["seg"]).convert("P"))
@@ -162,7 +161,8 @@ class Dataset(torch.utils.data.Dataset):
                     # {
                     #     "callback": "RandomInstance",
                     #     "parameters": {
-                    #         "n_instances": 1
+                    #         "n_instances": 0,
+                    #         "range": [0, 10]
                     #     },
                     #     "objects": ["ins", "vpm", "msk"],
                     # },
@@ -214,7 +214,8 @@ class Dataset(torch.utils.data.Dataset):
                     # {
                     #     "callback": "RandomInstance",
                     #     "parameters": {
-                    #         "n_instances": 1
+                    #         "n_instances": 0
+                    #         "range": [0, 10]
                     #     },
                     #     "objects": ["ins", "vpm", "msk"],
                     # },
@@ -370,28 +371,28 @@ class Kitti360Dataset(Dataset):
                     cfg.DIR,
                     c,
                     "footage",
-                    "%010d.png" % i,
+                    "%010d.png" % f,
                 ),
                 "seg": os.path.join(
                     cfg.DIR,
                     c,
                     "seg",
-                    "%010d.png" % i,
+                    "%010d.png" % f,
                 ),
                 "ins": os.path.join(
                     cfg.DIR,
                     c,
                     "InstanceImage",
-                    "%010d.png" % i,
+                    "%010d.png" % f,
                 ),
                 # Projection
                 "proj/hf": os.path.join(cfg.DIR, c, "Projection", "REST-TD_HF.png"),
                 "proj/seg": os.path.join(cfg.DIR, c, "Projection", "REST-SEG.png"),
                 # Precomputed Points in the viewpoint (scripts/dataset_generator.py)
-                "pts": os.path.join(cfg.DIR, c, "Points", "%010d.pkl" % i),
+                "pts": os.path.join(cfg.DIR, c, "Points", "%010d.pkl" % f),
             }
             for c, v in view_idx.items()
-            for i in v
+            for i, f in enumerate(v)
         ]
         if cfg.PIN_MEMORY:
             self.pin_memory(files, cfg.PIN_MEMORY)

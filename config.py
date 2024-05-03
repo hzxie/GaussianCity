@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-02 21:40:30
+# @Last Modified at: 2024-05-03 20:04:35
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -61,14 +61,14 @@ cfg.DATASETS.KITTI_360.BLDG_FACADE_CLSID          = 2
 cfg.DATASETS.KITTI_360.CAR_RANGE                  = [5000, 16384]
 cfg.DATASETS.KITTI_360.CAR_CLSID                  = 3
 cfg.DATASETS.KITTI_360.Z_SCALE_SPECIAL_CLASSES    = {"ROAD": 1, "ZONE": 6}
-cfg.DATASETS.KITTI_360.MAP_SIZE                   = 2048
+cfg.DATASETS.KITTI_360.MAP_SIZE                   = 0
 cfg.DATASETS.KITTI_360.SCALE                      = 1
 # The CitySample Dataset Config
 cfg.DATASETS.CITY_SAMPLE                          = EasyDict()
 cfg.DATASETS.CITY_SAMPLE.DIR                      = "./data/city-sample"
 cfg.DATASETS.CITY_SAMPLE.PIN_MEMORY               = ["Rt", "centers"]
 cfg.DATASETS.CITY_SAMPLE.N_REPEAT                 = 1            # 1
-cfg.DATASETS.CITY_SAMPLE.N_CITIES                 = 1            # 10
+cfg.DATASETS.CITY_SAMPLE.N_CITIES                 = 10           # 10
 cfg.DATASETS.CITY_SAMPLE.N_VIEWS                  = 3000         # 3000
 cfg.DATASETS.CITY_SAMPLE.CITY_STYLES              = ["Day"]      # ["Day", "Night"]
 cfg.DATASETS.CITY_SAMPLE.TRAIN_CROP_SIZE          = (448, 448)
@@ -138,8 +138,8 @@ cfg.NETWORK.GAUSSIAN.N_FREQ_BANDS                 = 10
 cfg.NETWORK.GAUSSIAN.Z_DIM                        = 256
 cfg.NETWORK.GAUSSIAN.MLP_HIDDEN_DIM               = 512
 cfg.NETWORK.GAUSSIAN.MLP_N_SHARED_LAYERS          = 1
-cfg.NETWORK.GAUSSIAN.ATTR_FACTORS                 = {"rgb": 2}
-cfg.NETWORK.GAUSSIAN.ATTR_N_LAYERS                = {"rgb": 1}
+cfg.NETWORK.GAUSSIAN.ATTR_FACTORS                 = {"rgb": 2} # "xyz": 40, "opacity": 1
+cfg.NETWORK.GAUSSIAN.ATTR_N_LAYERS                = {"rgb": 1} # "xyz": 1, "opacity": 1
 cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE           = 128
 cfg.NETWORK.GAUSSIAN.PTV3                         = EasyDict()
 cfg.NETWORK.GAUSSIAN.PTV3.STRIDE                  = (2, 2, 2, 2)
