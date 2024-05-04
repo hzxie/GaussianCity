@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:36:52
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-11 22:18:20
+# @Last Modified at: 2024-05-04 08:06:33
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -27,6 +27,7 @@ class Generator(torch.nn.Module):
             in_channels=2
             * cfg.NETWORK.GAUSSIAN.PROJ_ENCODER_OUT_DIM
             * cfg.NETWORK.GAUSSIAN.N_FREQ_BANDS,
+            order=cfg.NETWORK.GAUSSIAN.PTV3.ORDER,
             stride=cfg.NETWORK.GAUSSIAN.PTV3.STRIDE,
             enc_depths=cfg.NETWORK.GAUSSIAN.PTV3.ENC_DEPTHS,
             enc_channels=cfg.NETWORK.GAUSSIAN.PTV3.ENC_CHANNELS,

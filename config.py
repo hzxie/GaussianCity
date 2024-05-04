@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-03 20:04:35
+# @Last Modified at: 2024-05-04 08:07:43
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -46,7 +46,7 @@ cfg.DATASETS.KITTI_360.DIR                        = "./data/kitti-360/processed"
 cfg.DATASETS.KITTI_360.PIN_MEMORY                 = ["Rt", "centers"]
 cfg.DATASETS.KITTI_360.N_REPEAT                   = 1
 cfg.DATASETS.KITTI_360.VIEW_INDEX_FILE            = "./data/kitti-360/views.json"
-cfg.DATASETS.KITTI_360.TRAIN_CROP_SIZE            = (336, 336)
+cfg.DATASETS.KITTI_360.TRAIN_CROP_SIZE            = (448, 224)
 cfg.DATASETS.KITTI_360.TEST_CROP_SIZE             = (704, 376)
 cfg.DATASETS.KITTI_360.TRAIN_MIN_PIXELS           = 64
 cfg.DATASETS.KITTI_360.TRAIN_MAX_POINTS           = 16384
@@ -142,6 +142,7 @@ cfg.NETWORK.GAUSSIAN.ATTR_FACTORS                 = {"rgb": 2} # "xyz": 40, "opa
 cfg.NETWORK.GAUSSIAN.ATTR_N_LAYERS                = {"rgb": 1} # "xyz": 1, "opacity": 1
 cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE           = 128
 cfg.NETWORK.GAUSSIAN.PTV3                         = EasyDict()
+cfg.NETWORK.GAUSSIAN.PTV3.ORDER                   = ("z")
 cfg.NETWORK.GAUSSIAN.PTV3.STRIDE                  = (2, 2, 2, 2)
 cfg.NETWORK.GAUSSIAN.PTV3.ENC_DEPTHS              = (2, 2, 2, 6, 2)
 cfg.NETWORK.GAUSSIAN.PTV3.ENC_CHANNELS            = (32, 64, 128, 256, 512)
