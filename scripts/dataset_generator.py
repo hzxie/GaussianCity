@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-02 08:50:58
+# @Last Modified at: 2024-05-04 12:05:41
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -1569,6 +1569,7 @@ def main(dataset, data_dir, osm_dir, is_debug):
                 dataset == "CITY_SAMPLE",
             )
             if dataset == "KITTI_360":
+                vp_map = np.fliplr(vp_map)
                 ins_map = np.fliplr(ins_map)
 
             vp_idx = np.sort(np.unique(vp_map))
