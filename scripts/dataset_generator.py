@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-07 15:54:29
+# @Last Modified at: 2024-05-07 21:13:15
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -140,10 +140,8 @@ CONSTANTS = {
         "SCALE": 1,
         "CAR_SCALE": [0.5, 0.75, 0.75],
         "MAP_SIZE": 0,
-        # "VOXEL_SIZE": 0.1,
-        "VOXEL_SIZE": 0.25,
-        # "PATCH_SIZE": 1280,
-        "PATCH_SIZE": 512,
+        "VOXEL_SIZE": 0.1,
+        "PATCH_SIZE": 1280,
         "PROJECTION_SIZE": 2048,
         "CAR_INS_MIN_ID": 10000,
         "SEG_MAP_PATTERN": "seg/%010d.png",
@@ -645,8 +643,8 @@ def _get_kitti_360_3d_bbox_annotations(xml_node):
             bbox3d = _get_scaled_kitti_360_car(
                 bbox3d, CONSTANTS["KITTI_360"]["CAR_SCALE"]
             )
-        # elif label in ["vegetation"]:
-        #     bbox3d = _get_kitti_360_trees(bbox3d)
+        elif label in ["vegetation"]:
+            bbox3d = _get_kitti_360_trees(bbox3d)
 
     return frame_start, frame_end, bbox3d
 
@@ -735,6 +733,81 @@ def _get_scaled_kitti_360_car(bbox3d, scales):
     return bbox3d
 
 
+@utils.helpers.static_vars(trees=[])
+def _get_kitti_360_trees(bbox3d):
+    HEIGHT_THRESHOLD = 2.0
+    QUAT_SCALE_FACTOR = 500
+    TREE_INTERVAL = QUAT_SCALE_FACTOR * 2
+    PROJECTION_SHRINK_KERNEL = TREE_INTERVAL // 8
+    # Load the 3D tree models
+    if not _get_kitti_360_trees.trees:
+        tree_assets = [f for f in os.listdir(CONSTANTS["KITTI_360"]["TREE_ASSETS_DIR"])]
+        for ta in tree_assets:
+            asset = open3d.io.read_triangle_mesh(
+                os.path.join(CONSTANTS["KITTI_360"]["TREE_ASSETS_DIR"], ta)
+            )
+            # Normalize the assets
+            asset_center = (asset.get_max_bound() + asset.get_min_bound()) / 2
+            asset_center[1] = asset.get_min_bound()[1]  # Move the center to the bottom
+            asset_size = asset.get_max_bound() - asset.get_min_bound()
+            asset_scale = np.min(asset_size)
+            asset_vertices = np.asarray(asset.vertices)
+            asset_vertices = (asset_vertices - asset_center) / asset_scale
+            # Swap the Y and Z axes
+            asset_vertices = asset_vertices[:, [0, 2, 1]]
+            _get_kitti_360_trees.trees.append(
+                {
+                    "vertices": asset_vertices,
+                    "faces": np.asarray(asset.triangles),
+                }
+            )
+
+    faces = bbox3d["faces"]
+    vertices = bbox3d["vertices"]
+    # Check the bbox height
+    min_z, max_z = np.min(vertices[:, 2]), np.max(vertices[:, 2])
+    if max_z - min_z < HEIGHT_THRESHOLD:
+        return bbox3d
+
+    # Determine the projection areas on the XY plane
+    faces_2d = vertices[:, :2][faces]
+    min_x, min_y = np.min(faces_2d[..., 0]), np.min(faces_2d[..., 1])
+    tlp = np.array([min_x, min_y])
+    faces_2d = ((faces_2d - tlp) * QUAT_SCALE_FACTOR).astype(np.int32)
+    max_x, max_y = np.max(faces_2d[..., 0]), np.max(faces_2d[..., 1])
+    mask = np.zeros((max_y + 1, max_x + 1), dtype=np.uint8)
+    for f in faces_2d:
+        cv2.drawContours(mask, [f.astype(np.int32)], 0, 255, -1)
+    # Shrink the projection area to avoid generate trees near the boundary
+    mask = cv2.erode(
+        mask, np.ones((TREE_INTERVAL, PROJECTION_SHRINK_KERNEL), np.uint8), iterations=1
+    )
+    # Determine the tree roots, starting from the top-left corner
+    tree_roots = []
+    for i in range(0, max_x, TREE_INTERVAL):
+        for j in range(0, max_y, TREE_INTERVAL):
+            if mask[j, i] != 0:
+                tree_roots.append(np.array([i, j]) / QUAT_SCALE_FACTOR + tlp)
+                cv2.circle(mask, (i, j), 10, 128, -1)
+    # No trees should be generated, fallback to the original annotation
+    if len(tree_roots) == 0:
+        return bbox3d
+
+    # Random replace 3D assets
+    bbox3d["vertices"] = []
+    bbox3d["faces"] = []
+    for tr in tree_roots:
+        tree = copy.deepcopy(np.random.choice(_get_kitti_360_trees.trees))
+        vertices = tree["vertices"] + np.array([tr[0], tr[1], min_z])
+        faces = tree["faces"] + len(bbox3d["vertices"])
+        bbox3d["vertices"].append(vertices)
+        bbox3d["faces"].append(faces)
+
+    bbox3d["vertices"] = np.concatenate(bbox3d["vertices"], axis=0)
+    bbox3d["faces"] = np.concatenate(bbox3d["faces"], axis=0)
+    return bbox3d
+
+
 def _get_kitti_360_points(bboxes):
     voxels = []
     instances = []
@@ -779,7 +852,8 @@ def _get_kitti_360_projection(points):
         x, y, z, i = p
         _x, _y, _z = x - x_min, y - y_min, z - z_min
         if i in [CLASSES["KITTI_360"]["ROAD"], CLASSES["KITTI_360"]["ZONE"]]:
-            _z -= 1
+            # The MAGIC NUMBER 3 makes the road and zone are better aligned with RGB images
+            _z -= 3
 
         if tpd_hf[_y, _x] < _z:
             tpd_hf[_y, _x] = _z
