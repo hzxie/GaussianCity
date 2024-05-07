@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-03 20:05:46
+# @Last Modified at: 2024-05-07 22:20:18
 # @Email:  root@haozhexie.com
 
 import copy
@@ -336,13 +336,21 @@ class Kitti360Dataset(Dataset):
     def instances_to_classes(self, instances):
         # Make it compatible in both numpy and PyTorch
         cfg = self.cfg.DATASETS.KITTI_360
-        bldg_facade_idx = (instances >= cfg.BLDG_RANGE[0]) & (
-            instances < cfg.BLDG_RANGE[1]
+        bldg_facade_idx = (
+            (instances >= cfg.BLDG_RANGE[0])
+            & (instances < cfg.BLDG_RANGE[1])
+            & (instances % 2 == 0)
+        )
+        bldg_roof_idx = (
+            (instances >= cfg.BLDG_RANGE[0])
+            & (instances < cfg.BLDG_RANGE[1])
+            & (instances % 2 == 1)
         )
         car_idx = (instances >= cfg.CAR_RANGE[0]) & (instances < cfg.CAR_RANGE[1])
 
         classes = copy.deepcopy(instances)
         classes[bldg_facade_idx] = cfg.BLDG_FACADE_CLSID
+        classes[bldg_roof_idx] = cfg.BLDG_ROOF_CLSID
         classes[car_idx] = cfg.CAR_CLSID
         return classes
 

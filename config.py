@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-04 08:07:43
+# @Last Modified at: 2024-05-07 22:19:06
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -54,11 +54,12 @@ cfg.DATASETS.KITTI_360.TRAIN_MAX_POINTS           = 16384
 cfg.DATASETS.KITTI_360.CAM_K                      = [552.554261, 0, 682.049453, 0, 552.554261, 238.769549, 0, 0, 1]
 cfg.DATASETS.KITTI_360.SENSOR_SIZE                = (1408, 376)
 cfg.DATASETS.KITTI_360.FLIP_UD                    = True
-cfg.DATASETS.KITTI_360.N_CLASSES                  = 7
+cfg.DATASETS.KITTI_360.N_CLASSES                  = 8
 cfg.DATASETS.KITTI_360.PROJ_SIZE                  = (2048, 2048)
-cfg.DATASETS.KITTI_360.BLDG_RANGE                 = [100, 5000]
+cfg.DATASETS.KITTI_360.BLDG_RANGE                 = [100, 10000]
 cfg.DATASETS.KITTI_360.BLDG_FACADE_CLSID          = 2
-cfg.DATASETS.KITTI_360.CAR_RANGE                  = [5000, 16384]
+cfg.DATASETS.KITTI_360.BLDG_ROOF_CLSID            = 7
+cfg.DATASETS.KITTI_360.CAR_RANGE                  = [10000, 16384]
 cfg.DATASETS.KITTI_360.CAR_CLSID                  = 3
 cfg.DATASETS.KITTI_360.Z_SCALE_SPECIAL_CLASSES    = {"ROAD": 1, "ZONE": 6}
 cfg.DATASETS.KITTI_360.MAP_SIZE                   = 0
