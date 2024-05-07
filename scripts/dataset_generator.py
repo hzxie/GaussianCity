@@ -4,10 +4,11 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-04 12:05:41
+# @Last Modified at: 2024-05-07 15:54:29
 # @Email:  root@haozhexie.com
 
 import argparse
+import copy
 import csv
 import cv2
 import json
@@ -18,7 +19,7 @@ import numpy as np
 import open3d
 import os
 import pickle
-import scipy.spatial.transform
+import scipy.spatial
 import shutil
 import sys
 import torch
@@ -72,6 +73,7 @@ CLASSES = {
         "VEGETATION": 4,
         "SKY": 5,
         "ZONE": 6,
+        "BLDG_ROOF": 7,
     },
 }
 
@@ -105,6 +107,7 @@ SCALES = {
         "VEGETATION": 2,
         "SKY": 25,
         "ZONE": 10,
+        "BLDG_ROOF": 2,
     },
 }
 
@@ -117,7 +120,6 @@ CONSTANTS = {
         "PROJECTION_SIZE": 2048,
         "IMAGE_WIDTH": 1920,
         "IMAGE_HEIGHT": 1080,
-        "ROOF_INS_OFFSET": 1,
         "CAR_INS_MIN_ID": 5000,
         "SEG_MAP_PATTERN": "SemanticImage/%sSequence.%04d.png",
         "OUT_FILE_NAME_PATTERN": "%04d",
@@ -131,21 +133,24 @@ CONSTANTS = {
         "IMAGE_WIDTH": 960,
         "IMAGE_HEIGHT": 540,
         "ZOOM_LEVEL": 18,
-        "ROOF_INS_OFFSET": 1,
         "SEG_MAP_PATTERN": "seg/%s_%02d.png",
         "OUT_FILE_NAME_PATTERN": "%04d",
     },
     "KITTI_360": {
         "SCALE": 1,
+        "CAR_SCALE": [0.5, 0.75, 0.75],
         "MAP_SIZE": 0,
-        "VOXEL_SIZE": 0.1,
-        "PATCH_SIZE": 1280,
+        # "VOXEL_SIZE": 0.1,
+        "VOXEL_SIZE": 0.25,
+        # "PATCH_SIZE": 1280,
+        "PATCH_SIZE": 512,
         "PROJECTION_SIZE": 2048,
-        "CAR_INS_MIN_ID": 5000,
-        "ROOF_INS_OFFSET": 0,
+        "CAR_INS_MIN_ID": 10000,
         "SEG_MAP_PATTERN": "seg/%010d.png",
         "OUT_FILE_NAME_PATTERN": "%010d",
+        "TREE_ASSETS_DIR": "/tmp/trees",
     },
+    "ROOF_INS_OFFSET": 1,
     "BLDG_INS_MIN_ID": 100,
 }
 
@@ -618,7 +623,7 @@ def _get_kitti_360_3d_bbox_annotations(xml_node):
             _get_kitti_360_3d_bbox_annotations.car_counter += 1
         elif label in ["building"]:
             instance_id = _get_kitti_360_3d_bbox_annotations.bldg_counter
-            _get_kitti_360_3d_bbox_annotations.bldg_counter += 1
+            _get_kitti_360_3d_bbox_annotations.bldg_counter += 2
 
         transform = _get_kitti_360_annotation_matrix(xml_node.find("transform"))
         vertices = _get_kitti_360_annotation_matrix(xml_node.find("vertices"))
@@ -632,6 +637,17 @@ def _get_kitti_360_3d_bbox_annotations(xml_node):
                 np.int32
             ),
         }
+        if label in ["building"]:
+            # Manually generate roof vertices
+            bbox3d = _get_kitti_360_bldg_roof(bbox3d)
+        elif label in ["car"]:
+            # The original annotations for cars are too large
+            bbox3d = _get_scaled_kitti_360_car(
+                bbox3d, CONSTANTS["KITTI_360"]["CAR_SCALE"]
+            )
+        # elif label in ["vegetation"]:
+        #     bbox3d = _get_kitti_360_trees(bbox3d)
+
     return frame_start, frame_end, bbox3d
 
 
@@ -649,6 +665,74 @@ def _get_kitti_360_annotation_matrix(xml_node):
 
     mat = np.reshape(mat, [rows, cols])
     return mat
+
+
+def _get_kitti_360_bldg_roof(bbox3d):
+    vertices = bbox3d["vertices"]
+    # Determine the bbox height
+    z_min, z_max = np.min(vertices[:, 2]), np.max(vertices[:, 2])
+    z_mid = z_min + (z_max - z_min) * 0.666
+    pt1 = vertices[0, :2]
+    pt2 = vertices[2, :2]
+    pt3 = vertices[4, :2]
+    pt4 = vertices[6, :2]
+    d12 = np.linalg.norm(pt1 - pt2)
+    d13 = np.linalg.norm(pt1 - pt3)
+    d14 = np.linalg.norm(pt1 - pt4)
+    # Determine the shorter side
+    assert d14 > d13 and d14 > d12
+    if d12 < d13:
+        pt5 = (pt1 + pt2) / 2
+        pt6 = (pt3 + pt4) / 2
+    else:
+        pt5 = (pt1 + pt3) / 2
+        pt6 = (pt2 + pt4) / 2
+    # Regenerate vertices
+    bbox3d["vertices"] = np.array(
+        [
+            [pt1[0], pt1[1], z_min],
+            [pt1[0], pt1[1], z_mid],
+            [pt2[0], pt2[1], z_min],
+            [pt2[0], pt2[1], z_mid],
+            [pt3[0], pt3[1], z_min],
+            [pt3[0], pt3[1], z_mid],
+            [pt4[0], pt4[1], z_min],
+            [pt4[0], pt4[1], z_mid],
+            [pt5[0], pt5[1], z_max],
+            [pt6[0], pt6[1], z_max],
+        ]
+    )
+    # Regenerate faces
+    bbox3d["faces"] = np.array(
+        [
+            [0, 2, 6],
+            [0, 4, 6],
+            [0, 1, 4],
+            [1, 4, 5],
+            [2, 3, 6],
+            [3, 6, 7],
+            [0, 1, 2],
+            [1, 2, 3],
+            [4, 5, 6],
+            [5, 6, 7],
+            [5, 8, 9],
+            [5, 7, 9],
+            [1, 3, 9],
+            [1, 8, 9],
+            [1, 5, 8],
+            [3, 9, 7],
+        ]
+    )
+    return bbox3d
+
+
+def _get_scaled_kitti_360_car(bbox3d, scales):
+    center = np.mean(bbox3d["vertices"], axis=0)
+    # min_coords = np.min(bbox3d["vertices"], axis=0)
+    # max_coords = np.max(bbox3d["vertices"], axis=0)
+    # dimensions = max_coords - min_coords
+    bbox3d["vertices"] = center + (bbox3d["vertices"] - center) * np.array(scales)
+    return bbox3d
 
 
 def _get_kitti_360_points(bboxes):
@@ -694,10 +778,8 @@ def _get_kitti_360_projection(points):
     for p in tqdm(points, leave=False):
         x, y, z, i = p
         _x, _y, _z = x - x_min, y - y_min, z - z_min
-        if i == CLASSES["KITTI_360"]["ROAD"]:
-            _z -= SCALES["KITTI_360"]["ROAD"]
-        elif i == CLASSES["KITTI_360"]["ZONE"]:
-            _z -= SCALES["KITTI_360"]["ZONE"]
+        if i in [CLASSES["KITTI_360"]["ROAD"], CLASSES["KITTI_360"]["ZONE"]]:
+            _z -= 1
 
         if tpd_hf[_y, _x] < _z:
             tpd_hf[_y, _x] = _z
@@ -780,10 +862,11 @@ def _get_city_sample_seg_map(ins_map):
 
 
 def _get_google_earth_seg_map(ins_map):
+    # NOTE: BLDG_ROOF is mapped to BLDG_FACADE because the BLDG_ROOF is not in the semantic map.
     ins_map = ins_map.copy()
-    ins_map[
-        np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))
-    ] = CLASSES["GOOGLE_EARTH"]["BLDG_ROOF"]
+    # ins_map[
+    #     np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))
+    # ] = CLASSES["GOOGLE_EARTH"]["BLDG_ROOF"]
     ins_map[ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]] = CLASSES["GOOGLE_EARTH"][
         "BLDG_FACADE"
     ]
@@ -791,10 +874,14 @@ def _get_google_earth_seg_map(ins_map):
 
 
 def _get_kitti_360_seg_map(ins_map):
+    # NOTE: BLDG_ROOF is mapped to BLDG_FACADE because the BLDG_ROOF is not in the semantic map.
     ins_map = ins_map.copy()
     ins_map[ins_map >= CONSTANTS["KITTI_360"]["CAR_INS_MIN_ID"]] = CLASSES["KITTI_360"][
         "CAR"
     ]
+    # ins_map[
+    #     np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))
+    # ] = CLASSES["KITTI_360"]["BLDG_ROOF"]
     ins_map[ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]] = CLASSES["KITTI_360"][
         "BLDG_FACADE"
     ]
@@ -897,7 +984,7 @@ def get_seg_ins_relations(dataset):
     return {
         # BLDG
         "BLDG_INS_MIN_ID": CONSTANTS["BLDG_INS_MIN_ID"],
-        "ROOF_INS_OFFSET": CONSTANTS[dataset]["ROOF_INS_OFFSET"],
+        "ROOF_INS_OFFSET": CONSTANTS["ROOF_INS_OFFSET"],
         "BLDG_FACADE_SEMANTIC_ID": CLASSES[dataset]["BLDG_FACADE"],
         "BLDG_ROOF_SEMANTIC_ID": CLASSES[dataset]["BLDG_ROOF"]
         if "BLDG_ROOF" in CLASSES[dataset]
@@ -1591,7 +1678,9 @@ def main(dataset, data_dir, osm_dir, is_debug):
             # # Debug: Render Instance Map with Gaussian Splatting
             # # Revert the cx value for the KITTI 360 dataset. Otherwise, the image cannot be aligned perfectly.
             # if dataset == "KITTI_360":
-            #     cam_rig["intrinsics"][2] = cam_rig["sensor_size"][0] - cam_rig["intrinsics"][2]
+            #     cam_rig["intrinsics"][2] = (
+            #         cam_rig["sensor_size"][0] - cam_rig["intrinsics"][2]
+            #     )
             # scales = scales[vp_idx]
             # import extensions.diff_gaussian_rasterization as dgr
             # gr = dgr.GaussianRasterizerWrapper(
