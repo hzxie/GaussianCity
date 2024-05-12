@@ -4,17 +4,18 @@
 # @Author: Haozhe Xie
 # @Date:   2024-01-18 11:45:08
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-01-22 19:55:42
+# @Last Modified at: 2024-05-13 00:08:12
 # @Email:  root@haozhexie.com
 
 import argparse
 import copy
-import csv
 import cv2
 import json
 import logging
+import math
 import numpy as np
 import os
+import pickle
 import sys
 import torch
 
@@ -24,323 +25,509 @@ from tqdm import tqdm
 PROJECT_HOME = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
 sys.path.append(PROJECT_HOME)
 
-import models.gancraft
+import extensions.diff_gaussian_rasterization as dgr
+import models.generator
 import scripts.dataset_generator
 import utils.helpers
 
 CONSTANTS = {
-    "IMAGE_WIDTH": 960,
-    "IMAGE_HEIGHT": 540,
-    "IMAGE_PADDING": 8,
-    "LAYOUT_MAX_HEIGHT": 384,
-    "LAYOUT_N_CLASSES": 9,
-    "LAYOUT_VOL_SIZE": 1536,
-    "BUILDING_VOL_SIZE": 672,
-    "N_MAX_BUILDINGS": 5000,
-    "BLD_INS_STEP": 4,
-    "BLD_INS_MIN_ID": 100,
-    "CAR_INS_MIN_ID": 5000,
-    "BLD_FACADE_CLS_ID": 7,
-    "BLD_ROOF_CLS_ID": 8,
+    "GOOGLE_EARTH": {
+        "N_CLASSES": 8,
+        "N_TRAJECTORY_POINTS": 24,
+        "POINT_SCALE_FACTOR": 0.65,
+        "SPECIAL_Z_SCALE_CLASSES": {"ROAD": 1, "WATER": 5, "ZONE": 6},
+        "PROJ_SIZE": 2048,
+        "SENSOR_SIZE": (960, 540),
+        "K": [1528.1469407006614, 0, 480, 0, 1528.1469407006614, 270, 0, 0, 1],
+    },
+    "KITTI_360": {
+        "N_CLASSES": 8,
+        "POINT_SCALE_FACTOR": 0.65,
+        "SPECIAL_Z_SCALE_CLASSES": {"ROAD": 1, "ZONE": 6},
+        "SENSOR_SIZE": (1408, 376),
+        "K": [552.554261, 0, 682.049453, 0, 552.554261, 238.769549, 0, 0, 1],
+    },
 }
 
 
-def get_models(gancraft_bg_ckpt, gancraft_fg_ckpt):
-    # Load checkpoints
-    logging.info("Loading checkpoints ...")
-    gancraft_bg_ckpt = torch.load(gancraft_bg_ckpt)
-    gancraft_fg_ckpt = torch.load(gancraft_fg_ckpt)
-
-    # Use global avgpool for sky to get a consistent sky in the semi-transparent region
-    gancraft_bg_ckpt["cfg"].NETWORK.GANCRAFT.SKY_GLOBAL_AVGPOOL = True
-    # Initialize models
-    gancraft_bg = models.gancraft.GanCraftGenerator(gancraft_bg_ckpt["cfg"])
-    gancraft_fg = models.gancraft.GanCraftGenerator(gancraft_fg_ckpt["cfg"])
-    if torch.cuda.is_available():
-        gancraft_bg = torch.nn.DataParallel(gancraft_bg).cuda()
-        gancraft_fg = torch.nn.DataParallel(gancraft_fg).cuda()
-    else:
-        gancraft_bg.output_device = torch.device("cpu")
-        gancraft_fg.output_device = torch.device("cpu")
-
-    # Recover from checkpoints
-    logging.info("Recovering from checkpoints ...")
-    gancraft_bg.load_state_dict(gancraft_bg_ckpt["gancraft_g"], strict=False)
-    gancraft_fg.load_state_dict(gancraft_fg_ckpt["gancraft_g"], strict=False)
-
-    return gancraft_bg, gancraft_fg
-
-
-def _get_z(device, z_dim=256):
-    if z_dim is None:
+def _get_model(dataset, ckpt_file_path):
+    if not os.path.exists(ckpt_file_path):
         return None
 
-    return torch.randn(1, z_dim, dtype=torch.float32, device=device)
+    ckpt = torch.load(ckpt_file_path)
+    model = models.generator.Generator(ckpt["cfg"], CONSTANTS[dataset]["N_CLASSES"])
+    if torch.cuda.is_available():
+        model = torch.nn.DataParallel(model).cuda()
+    else:
+        model.output_device = torch.device("cpu")
+
+    model.load_state_dict(ckpt["gaussian_g"], strict=False)
+    return model
 
 
-def get_latent_codes(n_buildings, bg_style_dim, output_device):
-    bg_z = _get_z(output_device, bg_style_dim)
-    building_zs = {
-        i: _get_z(output_device)
-        for i in range(
-            CONSTANTS["BLD_INS_MIN_ID"],
-            CONSTANTS["BLD_INS_MIN_ID"] + n_buildings,
-            CONSTANTS["BLD_INS_STEP"],
+def get_models(dataset, bldg_ckpt, car_ckpt, rest_ckpt):
+    rest_model = _get_model(dataset, rest_ckpt)
+
+    bldg_model = None
+    if bldg_ckpt is not None:
+        bldg_model = _get_model(dataset, bldg_ckpt)
+
+    car_model = None
+    if car_ckpt is not None:
+        car_model = _get_model(dataset, car_ckpt)
+
+    return bldg_model, car_model, rest_model
+
+
+def get_city_projections(dataset_dir):
+    cities = sorted(os.listdir(dataset_dir))
+    # city_dir = os.path.join(dataset_dir, np.random.choice(cities))
+    city_dir = os.path.join(dataset_dir, cities[0])
+
+    proj_dir = os.path.join(city_dir, "Projection")
+    projections = scripts.dataset_generator.load_projections(proj_dir)
+    metadata = None
+    if os.path.exists(os.path.join(proj_dir, "metadata.json")):
+        with open(os.path.join(proj_dir, "metadata.json"), "r") as fp:
+            metadata = json.load(fp)
+            metadata["city_dir"] = city_dir
+
+    with open(os.path.join(city_dir, "CENTERS.pkl"), "rb") as fp:
+        centers = pickle.load(fp)
+
+    return metadata, projections, centers
+
+
+def get_style_lut(centers, z_dim=256):
+    return {ins: torch.rand(1, z_dim) for ins in centers.keys()}
+
+
+def get_camera_poses(dataset):
+    if dataset == "GOOGLE_EARTH":
+        return _get_google_earth_camera_poses()
+    elif dataset == "KITTI_360":
+        return _get_kitti_360_camera_poses()
+    else:
+        raise NotImplementedError
+
+
+def _get_google_earth_camera_poses():
+    radius = np.random.randint(128, 512)
+    altitude = np.random.randint(256, 512)
+    logging.debug("Radius = %d, Altitude = %s" % (radius, altitude))
+    cx = CONSTANTS["GOOGLE_EARTH"]["PROJ_SIZE"] // 2
+    cy = CONSTANTS["GOOGLE_EARTH"]["PROJ_SIZE"] // 2
+
+    camera_poses = []
+    for i in range(CONSTANTS["GOOGLE_EARTH"]["N_TRAJECTORY_POINTS"]):
+        theta = 2 * math.pi / CONSTANTS["GOOGLE_EARTH"]["N_TRAJECTORY_POINTS"] * i
+        cam_x = cx + radius * math.cos(theta)
+        cam_y = cy + radius * math.sin(theta)
+
+        quat = scripts.dataset_generator._get_quat_from_look_at(
+            {"x": cam_x, "y": cam_y, "z": altitude},
+            {"x": cx, "y": cy, "z": 1},
         )
-    }
-    return bg_z, building_zs
+        camera_poses.append(
+            {
+                "id": i,
+                "tx": cam_x,
+                "ty": cam_y,
+                "tz": altitude,
+                "qx": quat[0],
+                "qy": quat[1],
+                "qz": quat[2],
+                "qw": quat[3],
+            }
+        )
+    return camera_poses
 
 
-def get_hf_seg_tensor(part_hf, part_seg, output_device):
-    part_hf = torch.from_numpy(part_hf[None, None, ...]).to(output_device)
-    part_seg = torch.from_numpy(part_seg[None, None, ...]).to(output_device)
-    part_hf = part_hf / CONSTANTS["LAYOUT_MAX_HEIGHT"]
-    part_seg = utils.helpers.masks_to_onehots(
-        part_seg[:, 0, :, :], CONSTANTS["LAYOUT_N_CLASSES"]
-    )
-    return torch.cat([part_hf, part_seg], dim=1)
-
-
-def get_pad_img_bbox(sx, ex, sy, ey):
-    psx = sx - CONSTANTS["IMAGE_PADDING"] if sx != 0 else 0
-    psy = sy - CONSTANTS["IMAGE_PADDING"] if sy != 0 else 0
-    pex = (
-        ex + CONSTANTS["IMAGE_PADDING"]
-        if ex != CONSTANTS["IMAGE_WIDTH"]
-        else CONSTANTS["IMAGE_WIDTH"]
-    )
-    pey = (
-        ey + CONSTANTS["IMAGE_PADDING"]
-        if ey != CONSTANTS["IMAGE_HEIGHT"]
-        else CONSTANTS["IMAGE_HEIGHT"]
-    )
-    return psx, pex, psy, pey
-
-
-def get_img_without_pad(img, sx, ex, sy, ey, psx, pex, psy, pey):
-    if CONSTANTS["IMAGE_PADDING"] == 0:
-        return img
-
-    return img[
-        :,
-        :,
-        sy - psy : ey - pey if ey != pey else ey,
-        sx - psx : ex - pex if ex != pex else ex,
-    ]
-
-
-def render_bg(
-    patch_size, gancraft_bg, hf_seg, voxel_id, depth2, raydirs, cam_origin, z
-):
-    _voxel_id = copy.deepcopy(voxel_id)
-    _voxel_id[_voxel_id >= CONSTANTS["BLD_INS_MIN_ID"]] = CONSTANTS["BLD_FACADE_CLS_ID"]
-    assert (_voxel_id < CONSTANTS["LAYOUT_N_CLASSES"]).all()
-    bg_img = torch.zeros(
-        1,
-        3,
-        CONSTANTS["IMAGE_HEIGHT"],
-        CONSTANTS["IMAGE_WIDTH"],
-        dtype=torch.float32,
-        device=gancraft_bg.output_device,
-    )
-    # Precompute the global consist sky in the semi-transparent region
-    _, gancraft_bg.module.sky_avg = gancraft_bg.module.get_sky(raydirs)
-    # Render background patches by patch to avoid OOM
-    for i in range(CONSTANTS["IMAGE_HEIGHT"] // patch_size[0]):
-        for j in range(CONSTANTS["IMAGE_WIDTH"] // patch_size[1]):
-            sy, sx = i * patch_size[0], j * patch_size[1]
-            ey, ex = sy + patch_size[0], sx + patch_size[1]
-            psx, pex, psy, pey = get_pad_img_bbox(sx, ex, sy, ey)
-            output_bg = gancraft_bg(
-                hf_seg=hf_seg,
-                voxel_id=_voxel_id[:, psy:pey, psx:pex],
-                depth2=depth2[:, psy:pey, psx:pex],
-                raydirs=raydirs[:, psy:pey, psx:pex],
-                cam_origin=cam_origin,
-                footprint_bboxes=None,
-                z=z,
-                deterministic=True,
-            )
-            bg_img[:, :, sy:ey, sx:ex] = get_img_without_pad(
-                output_bg, sx, ex, sy, ey, psx, pex, psy, pey
-            )
-
-    return bg_img
-
-
-def _get_img_patch(img, cx, cy):
-    size = CONSTANTS["BUILDING_VOL_SIZE"]
-    half_size = size // 2
-    pad_img = torch.zeros(
-        size=(img.size(0), img.size(1), size, size), device=img.device
-    )
-    # Determine the crop position
-    tl_x, br_x = cx - half_size, cx + half_size
-    tl_y, br_y = cy - half_size, cy + half_size
-    # Handle Corner case (out of bounds)
-    pad_x = 0 if tl_x >= 0 else abs(tl_x)
-    tl_x = tl_x if tl_x >= 0 else 0
-    br_x = min(br_x, CONSTANTS["LAYOUT_VOL_SIZE"])
-    patch_w = br_x - tl_x
-    pad_y = 0 if tl_y >= 0 else abs(tl_y)
-    tl_y = tl_y if tl_y >= 0 else 0
-    br_y = min(br_y, CONSTANTS["LAYOUT_VOL_SIZE"])
-    patch_h = br_y - tl_y
-    # Copy-paste
-    pad_img[:, :, pad_y : pad_y + patch_h, pad_x : pad_x + patch_w] = img[
-        :, :, tl_y:br_y, tl_x:br_x
-    ]
-    return pad_img
-
-
-def render_fg(
-    patch_size,
-    gancraft_fg,
-    building_id,
-    hf_seg,
-    voxel_id,
-    depth2,
-    raydirs,
-    cam_origin,
-    footprint_bbox,
-    building_z,
-):
-    _voxel_id = copy.deepcopy(voxel_id)
-    _curr_bld = torch.tensor([building_id, building_id + 1], device=voxel_id.device)
-    _voxel_id[~torch.isin(_voxel_id, _curr_bld)] = 0
-    _voxel_id[voxel_id == building_id] = CONSTANTS["BLD_FACADE_CLS_ID"]
-    _voxel_id[voxel_id == building_id + 1] = CONSTANTS["BLD_ROOF_CLS_ID"]
-
-    # assert (_voxel_id < CONSTANTS["LAYOUT_N_CLASSES"]).all()
-    _hf_seg = copy.deepcopy(hf_seg)
-    _hf_seg[hf_seg != building_id] = 0
-    _hf_seg[hf_seg == building_id] = CONSTANTS["BLD_FACADE_CLS_ID"]
-    _raydirs = copy.deepcopy(raydirs)
-    _raydirs[_voxel_id[..., 0, 0] == 0] = 0
-
-    # Crop the "hf_seg" image using the center of the target building as the reference
-    cx = CONSTANTS["LAYOUT_VOL_SIZE"] // 2 + int(footprint_bbox[1])
-    cy = CONSTANTS["LAYOUT_VOL_SIZE"] // 2 + int(footprint_bbox[0])
-    _hf_seg = _get_img_patch(hf_seg, cx, cy)
-
-    fg_img = torch.zeros(
-        1,
-        3,
-        CONSTANTS["IMAGE_HEIGHT"],
-        CONSTANTS["IMAGE_WIDTH"],
-        dtype=torch.float32,
-        device=gancraft_fg.output_device,
-    )
-    fg_mask = torch.zeros(
-        1,
-        1,
-        CONSTANTS["IMAGE_HEIGHT"],
-        CONSTANTS["IMAGE_WIDTH"],
-        dtype=torch.float32,
-        device=gancraft_fg.output_device,
-    )
-
-    # Render foreground patches by patch to avoid OOM
-    for i in range(CONSTANTS["IMAGE_HEIGHT"] // patch_size[0]):
-        for j in range(CONSTANTS["IMAGE_WIDTH"] // patch_size[1]):
-            sy, sx = i * patch_size[0], j * patch_size[1]
-            ey, ex = sy + patch_size[0], sx + patch_size[1]
-            psx, pex, psy, pey = get_pad_img_bbox(sx, ex, sy, ey)
-            if torch.count_nonzero(_raydirs[:, sy:ey, sx:ex]) > 0:
-                output_fg = gancraft_fg(
-                    _hf_seg,
-                    _voxel_id[:, psy:pey, psx:pex],
-                    depth2[:, psy:pey, psx:pex],
-                    _raydirs[:, psy:pey, psx:pex],
-                    cam_origin,
-                    footprint_bboxes=torch.from_numpy(
-                        np.array(footprint_bbox)
-                    ).unsqueeze(dim=0),
-                    z=building_z,
-                    deterministic=True,
-                )
-                facade_mask = (
-                    voxel_id[:, sy:ey, sx:ex, 0, 0] == building_id
-                ).unsqueeze(dim=1)
-                roof_mask = (
-                    voxel_id[:, sy:ey, sx:ex, 0, 0] == building_id + 1
-                ).unsqueeze(dim=1)
-                facade_img = facade_mask * get_img_without_pad(
-                    output_fg, sx, ex, sy, ey, psx, pex, psy, pey
-                )
-                roof_img = roof_mask * get_img_without_pad(
-                    output_fg,
-                    sx,
-                    ex,
-                    sy,
-                    ey,
-                    psx,
-                    pex,
-                    psy,
-                    pey,
-                )
-                fg_mask[:, :, sy:ey, sx:ex] = torch.logical_or(facade_mask, roof_mask)
-                fg_img[:, :, sy:ey, sx:ex] = (
-                    facade_img * facade_mask + roof_img * roof_mask
-                )
-
-    return fg_img, fg_mask
+def _get_kitti_360_camera_poses():
+    # TODO
+    raise NotImplementedError
 
 
 def render(
-    patch_size,
-    seg_volume,
-    hf_seg,
-    cam_rig,
+    dataset,
+    projections,
+    centers,
+    style_lut,
     cam_pose,
-    gancraft_bg,
-    gancraft_fg,
-    footprint_bboxes,
-    bg_z,
-    building_zs,
+    gr,
+    bldg_model,
+    car_model,
+    rest_model,
 ):
-    raycasting = scripts.dataset_generator.get_ray_voxel_intersection(
-        cam_rig, cam_pose["cam_position"], cam_pose["cam_look_at"], seg_volume
+    cam_quat = np.array(
+        [cam_pose["qx"], cam_pose["qy"], cam_pose["qz"], cam_pose["qw"]],
+        dtype=np.float32,
     )
-    voxel_id = raycasting["voxel_id"].unsqueeze(dim=0)
-    depth2 = raycasting["depth2"].permute(1, 2, 0, 3, 4).unsqueeze(dim=0)
-    raydirs = raycasting["raydirs"].unsqueeze(dim=0)
-    cam_origin = raycasting["cam_origin"].unsqueeze(dim=0)
+    cam_pos = np.array(
+        [cam_pose["tx"], cam_pose["ty"], cam_pose["tz"]], dtype=np.float32
+    )
+    local_projections, pts = _get_bev_points(dataset, projections, cam_pos, cam_quat)
+    scales = utils.helpers.get_point_scales(pts[:, [3]], pts[:, [4]])
 
-    buildings = torch.unique(voxel_id[voxel_id > CONSTANTS["BLD_INS_MIN_ID"]])
-    # Remove odd numbers from the list because they are reserved by roofs.
-    buildings = buildings[buildings % CONSTANTS["BLD_INS_STEP"] == 0]
+    pts = _get_normalized_pt_cords(pts, centers)
+    (
+        pts,
+        scales,
+        instances,
+        classes,
+        proj_hf,
+        proj_seg,
+        proj_tlp,
+        proj_aff_mat,
+    ) = _get_tensors(dataset, pts, scales, local_projections)
+    bldg_idx, car_idx, rest_idx = _get_pt_indexes_by_models(
+        classes, bldg_model, car_model
+    )
+    abs_xyz, scales, pt_attrs = _get_pt_attrs_by_models(
+        dataset,
+        pts,
+        scales,
+        classes,
+        instances,
+        style_lut,
+        proj_hf,
+        proj_seg,
+        proj_tlp,
+        proj_aff_mat,
+        bldg_idx,
+        car_idx,
+        rest_idx,
+        bldg_model,
+        car_model,
+        rest_model,
+    )
+    gs_pts = utils.helpers.get_gaussian_points(abs_xyz, scales, pt_attrs)
     with torch.no_grad():
-        bg_img = render_bg(
-            patch_size, gancraft_bg, hf_seg, voxel_id, depth2, raydirs, cam_origin, bg_z
+        fake_img = utils.helpers.get_gaussian_rasterization(
+            gs_pts,
+            gr,
+            cam_pos[None, ...],
+            cam_quat[None, ...],
         )
-        for b in buildings:
-            assert (
-                b % CONSTANTS["BLD_INS_STEP"] == 0
-            ), "Building Instance ID MUST be an even number."
-            fg_img, fg_mask = render_fg(
-                patch_size,
-                gancraft_fg,
-                b.item(),
-                hf_seg,
-                voxel_id,
-                depth2,
-                raydirs,
-                cam_origin,
-                footprint_bboxes[b.item()],
-                building_zs[b.item()],
-            )
-            bg_img = bg_img * (1 - fg_mask) + fg_img * fg_mask
-
-    return bg_img
+    return fake_img
 
 
-def get_video(frames, output_file):
+def _get_bev_points(dataset, projections, cam_pos, cam_quat):
+    fov_x = utils.helpers.intrinsic_to_fov(
+        CONSTANTS[dataset]["K"][0], CONSTANTS[dataset]["SENSOR_SIZE"][0]
+    )
+    fov_y = utils.helpers.intrinsic_to_fov(
+        CONSTANTS[dataset]["K"][1], CONSTANTS[dataset]["SENSOR_SIZE"][1]
+    )
+
+    cam_look_at = utils.helpers.get_camera_look_at(cam_pos, cam_quat)
+    view_frustum_cords = (
+        scripts.dataset_generator.get_view_frustum_cords(
+            cam_pos,
+            cam_look_at,
+            CONSTANTS[dataset]["PATCH_SIZE"],
+            fov_x / 2,
+        )
+        if dataset in ["CITY_SAMPLE", "KITTI_360"]
+        else None
+    )
+
+    local_projections = scripts.dataset_generator.get_local_projections(
+        projections["REST"],
+        view_frustum_cords,
+        CONSTANTS[dataset]["PROJ_SIZE"],
+    )
+    points = scripts.dataset_generator.get_points_from_projections(
+        projections,
+        scripts.dataset_generator.CLASSES[dataset],
+        scripts.dataset_generator.SCALES[dataset],
+        scripts.dataset_generator.get_seg_ins_relations(dataset),
+        CONSTANTS[dataset]["WATER_Z"] if "WATER_Z" in CONSTANTS[dataset] else 0,
+        view_frustum_cords,
+    )
+    # Generate sky points for the CitySample dataset
+    if dataset in ["CITY_SAMPLE", "KITTI_360"]:
+        sky_points = scripts.dataset_generator.get_sky_points(
+            view_frustum_cords[1:3],
+            cam_pos[2],
+            fov_y / 2,
+            CONSTANTS[dataset]["PATCH_SIZE"],
+            scripts.dataset_generator.SCALES[dataset]["SKY"],
+            scripts.dataset_generator.CLASSES[dataset]["SKY"],
+        )
+        points = np.concatenate((points, sky_points), axis=0)
+    # Generate the instance segmentation map as a side product
+    scales = utils.helpers.get_point_scales(points[:, [3]], points[:, [4]])
+    vp_map, ins_map = scripts.dataset_generator.get_visible_points(
+        points,
+        scales,
+        {
+            "intrinsics": CONSTANTS[dataset]["K"],
+            "sensor_size": CONSTANTS[dataset]["SENSOR_SIZE"],
+        },
+        cam_pos.copy(),
+        cam_quat,
+        scripts.dataset_generator.CLASSES[dataset]["NULL"],
+        dataset == "CITY_SAMPLE",
+    )
+    if dataset == "KITTI_360":
+        vp_map = np.fliplr(vp_map)
+        ins_map = np.fliplr(ins_map)
+
+    vp_idx = np.sort(np.unique(vp_map))
+    vp_idx = vp_idx[vp_idx >= 0]
+    points = points[vp_idx]
+    return local_projections, points
+
+
+def _get_normalized_pt_cords(pts, centers):
+    instances = np.unique(pts[:, -1])
+    rel_cords = pts[:, :3].copy().astype(np.float32)
+    batch_idx = np.zeros((pts.shape[0], 1), dtype=np.float32)
+    for idx, ins in enumerate(instances):
+        is_pts = pts[:, -1] == ins
+        cx, cy, w, h, d = centers[ins]
+
+        rel_cords[is_pts, 0] = (pts[is_pts, 0] - cx) / w * 2 if w > 0 else 0
+        rel_cords[is_pts, 1] = (pts[is_pts, 1] - cy) / h * 2 if h > 0 else 0
+        rel_cords[is_pts, 2] = (
+            np.clip(pts[is_pts, 2] / d * 2 - 1, -1, 1) if d > 0 else 0
+        )
+        batch_idx[is_pts, 0] = idx
+
+    return np.concatenate((pts, rel_cords, batch_idx), axis=1)
+
+
+def _get_tensors(dataset, pts, scales, local_projections):
+    pts = utils.helpers.var_or_cuda(torch.from_numpy(pts[None, ...]))
+    scales = utils.helpers.var_or_cuda(scales[None, ...])
+    instances = pts[:, :, [4]]
+    classes = _instances_to_classes(dataset, instances)
+    proj_hf = utils.helpers.var_or_cuda(
+        torch.from_numpy(local_projections["TD_HF"][None, None, ...])
+    )
+    proj_seg = utils.helpers.var_or_cuda(
+        torch.from_numpy(
+            _get_onehot_seg(local_projections["SEG"], CONSTANTS[dataset]["N_CLASSES"])[
+                None, ...
+            ]
+        ).float()
+    )
+    proj_tlp = (
+        utils.helpers.var_or_cuda(torch.from_numpy(local_projections["tlp"][None, ...]))
+        if "tlp" in local_projections
+        else None
+    )
+    proj_aff_mat = (
+        utils.helpers.var_or_cuda(
+            torch.from_numpy(local_projections["affmat"][None, ...])
+        )
+        if "tlp" in local_projections
+        else None
+    )
+    return pts, scales, instances, classes, proj_hf, proj_seg, proj_tlp, proj_aff_mat
+
+
+def _get_onehot_seg(mask, n_classes):
+    h, w = mask.shape
+    one_hot_masks = np.zeros((n_classes, h, w), dtype=np.uint8)
+    for i in range(n_classes):
+        one_hot_masks[i] = mask == i
+
+    return one_hot_masks
+
+
+def _get_z(instances, style_lut):
+    b, n, c = instances.size()
+    assert b == 1 and c == 1, "Unexpected tensor shape (%d, %d, %d)" % (b, n, c)
+
+    unique_instances = [i.item() for i in torch.unique(instances).short()]
+    unique_z = {ui: style_lut[ui].to(instances.device) for ui in unique_instances}
+
+    z = {}
+    for ui in unique_instances:
+        idx = instances[..., 0] == ui
+        z[ui] = {
+            "z": unique_z[ui],
+            "idx": idx,
+        }
+    return z
+
+
+def _get_pt_indexes_by_models(classes, bldg_model, car_model):
+    classes = classes.squeeze()
+    car_idx = torch.zeros_like(classes)
+    bldg_idx = torch.zeros_like(classes)
+    if bldg_model is not None:
+        bldg_idx = torch.isin(
+            classes,
+            torch.tensor(
+                [
+                    scripts.dataset_generator.CLASSES["GOOGLE_EARTH"]["BLDG_FACADE"],
+                    scripts.dataset_generator.CLASSES["GOOGLE_EARTH"]["BLDG_ROOF"],
+                ],
+                device=classes.device,
+            ),
+        )
+    if car_model is not None:
+        car_idx = torch.isin(
+            classes,
+            torch.tensor(
+                [
+                    scripts.dataset_generator.CLASSES["GOOGLE_EARTH"]["BLDG_FACADE"],
+                    scripts.dataset_generator.CLASSES["GOOGLE_EARTH"]["BLDG_ROOF"],
+                ],
+                device=classes.device,
+            ),
+        )
+    rest_idx = ~torch.logical_or(bldg_idx, car_idx)
+    return bldg_idx, car_idx, rest_idx
+
+
+def _get_pt_attrs_by_models(
+    dataset,
+    pts,
+    scales,
+    classes,
+    instances,
+    style_lut,
+    proj_hf,
+    proj_seg,
+    proj_tlp,
+    proj_aff_mat,
+    bldg_idx,
+    car_idx,
+    rest_idx,
+    bldg_model,
+    car_model,
+    rest_model,
+):
+    reordered_abs_xyz = []
+    reordered_scales = []
+    reordered_pt_attrs = {}
+    # TODO: add bldg back
+    for idx, model in zip([car_idx, rest_idx], [car_model, rest_model]):
+        if torch.sum(idx) == 0:
+            continue
+
+        pt_attrs = _get_gaussian_attributes(
+            dataset,
+            pts[:, idx],
+            classes[:, idx],
+            _get_z(instances[:, idx], style_lut),
+            proj_hf,
+            proj_seg,
+            proj_tlp,
+            proj_aff_mat,
+            model,
+        )
+        reordered_abs_xyz.append(pts[:, idx, :3])
+        reordered_scales.append(scales[:, idx])
+        for k, v in pt_attrs.items():
+            if k not in reordered_pt_attrs:
+                reordered_pt_attrs[k] = []
+            reordered_pt_attrs[k].append(v)
+
+    for k, v in reordered_pt_attrs.items():
+        reordered_pt_attrs[k] = torch.cat(v, dim=0)
+
+    return (
+        torch.cat(reordered_abs_xyz, dim=0),
+        torch.cat(reordered_scales, dim=0),
+        reordered_pt_attrs,
+    )
+
+
+def _get_gaussian_attributes(
+    dataset,
+    pts,
+    classes,
+    zs,
+    proj_hf,
+    proj_seg,
+    proj_tlp,
+    proj_aff_mat,
+    model,
+):
+    abs_xyz = pts[:, :, :3]
+    rel_xyz = pts[:, :, 5:8]
+    bch_idx = pts[:, :, 8].long()
+    scales = pts[:, :, [3]] * CONSTANTS[dataset]["POINT_SCALE_FACTOR"]
+    scales = utils.helpers.get_point_scales(
+        scales,
+        classes,
+        CONSTANTS[dataset]["SPECIAL_Z_SCALE_CLASSES"].values(),
+    )
+    onehots = utils.helpers.get_one_hot(classes, CONSTANTS[dataset]["N_CLASSES"])
+    proj_uv = utils.helpers.get_projection_uv(
+        abs_xyz,
+        proj_tlp,
+        proj_aff_mat,
+        (CONSTANTS[dataset]["PROJ_SIZE"], CONSTANTS[dataset]["PROJ_SIZE"]),
+    )
+    with torch.no_grad():
+        pt_attrs = model(proj_uv, rel_xyz, bch_idx, onehots, zs, proj_hf, proj_seg)
+
+    return pt_attrs
+
+
+def _instances_to_classes(dataset, instances):
+    if dataset == "GOOGLE_EARTH":
+        return _google_earth_instances_to_classes(instances)
+    elif dataset == "KITTI_360":
+        return _kitti_360_instances_to_classes(instances)
+    else:
+        raise NotImplementedError
+
+
+def _google_earth_instances_to_classes(instances):
+    bldg_facade_idx = (
+        instances >= scripts.dataset_generator.CONSTANTS["BLDG_INS_MIN_ID"]
+    ) & (instances % 2 == 0)
+    bldg_roof_idx = (
+        instances >= scripts.dataset_generator.CONSTANTS["BLDG_INS_MIN_ID"]
+    ) & (instances % 2 == 1)
+
+    classes = copy.deepcopy(instances)
+    classes[bldg_facade_idx] = scripts.dataset_generator.CLASSES["GOOGLE_EARTH"][
+        "BLDG_FACADE"
+    ]
+    classes[bldg_roof_idx] = scripts.dataset_generator.CLASSES["GOOGLE_EARTH"][
+        "BLDG_ROOF"
+    ]
+    return classes
+
+
+def _kitti_360_instances_to_classes(instances):
+    bldg_facade_idx = (
+        (instances >= scripts.dataset_generator.CONSTANTS["BLDG_INS_MIN_ID"])
+        & (instances < scripts.dataset_generator.CONSTANTS["CAR_INS_MIN_ID"])
+        & (instances % 2 == 0)
+    )
+    bldg_roof_idx = (
+        (instances >= scripts.dataset_generator.CONSTANTS["BLDG_INS_MIN_ID"])
+        & (instances < scripts.dataset_generator.CONSTANTS["CAR_INS_MIN_ID"])
+        & (instances % 2 == 1)
+    )
+    car_idx = instances >= CONSTANTS["CAR_INS_MIN_ID"]
+
+    classes = copy.deepcopy(instances)
+    classes[bldg_facade_idx] = scripts.dataset_generator.CLASSES["GOOGLE_EARTH"][
+        "BLDG_FACADE"
+    ]
+    classes[bldg_roof_idx] = scripts.dataset_generator.CLASSES["GOOGLE_EARTH"][
+        "BLDG_ROOF"
+    ]
+    classes[car_idx] = scripts.dataset_generator.CLASSES["CAR"]
+    return classes
+
+
+def get_video(frames, img_size, output_file):
     video = cv2.VideoWriter(
         output_file,
         cv2.VideoWriter_fourcc(*"avc1"),
         4,
-        (CONSTANTS["IMAGE_WIDTH"], CONSTANTS["IMAGE_HEIGHT"]),
+        (img_size[0], img_size[1]),  # (width, height)
     )
     for f in frames:
         video.write(f)
@@ -348,77 +535,44 @@ def get_video(frames, output_file):
     video.release()
 
 
-def main(patch_size, output_file, gancraft_bg_ckpt, gancraft_fg_ckpt):
-    gancraft_bg, gancraft_fg = get_models(gancraft_bg_ckpt, gancraft_fg_ckpt)
-    # Generate latent codes
-    logging.info("Generating latent codes ...")
-    bg_z, building_zs = get_latent_codes(
-        CONSTANTS["N_MAX_BUILDINGS"],
-        gancraft_bg.module.cfg.NETWORK.GANCRAFT.STYLE_DIM,
-        gancraft_bg.output_device,
+def main(dataset, dataset_dir, output_file, bldg_ckpt, car_ckpt, rest_ckpt):
+    logging.info("Loading checkpoints ...")
+    bldg_model, car_model, rest_model = get_models(
+        dataset, bldg_ckpt, car_ckpt, rest_ckpt
     )
 
-    # Generate the concatenated height field and seg. layout tensor
-    city_name = "City01"
-    height_field = Image.open(
-        os.path.join(PROJECT_HOME, "data", city_name, "HeightField.png")
-    )
-    seg_layout = Image.open(
-        os.path.join(PROJECT_HOME, "data", city_name, "SegLayout.png")
-    )
-    height_field = np.array(height_field)
-    seg_layout = np.array(seg_layout)
+    logging.info("Generating city layout ...")
+    metadata, projections, centers = get_city_projections(dataset_dir)
 
-    hf_seg = get_hf_seg_tensor(height_field, seg_layout, gancraft_bg.output_device)
-    # print(hf_seg.size())    # torch.Size([1, 10, 1536, 1536])
-    footprint_bboxes = scripts.dataset_generator.get_footprint_bboxes(seg_layout)
+    logging.info("Generating style look-up table ...")
+    style_lut = get_style_lut(centers)
 
-    # Build seg_volume
-    logging.info("Generating seg volume ...")
-    height_field = torch.from_numpy(height_field).to(gancraft_bg.output_device)
-    seg_layout = torch.from_numpy(seg_layout).to(gancraft_bg.output_device)
-    seg_volume = scripts.dataset_generator.get_volume_with_roof_1f(
-        height_field, seg_layout
-    )
-
-    # Generate camera trajectories
     logging.info("Generating camera poses ...")
-    with open(os.path.join(PROJECT_HOME, "data", city_name, "CameraRig.json")) as fp:
-        cam_rig = json.load(fp)
-        cam_rig = cam_rig["cameras"]["CameraComponent"]
-        cam_rig["sensor_size"] = [CONSTANTS["IMAGE_WIDTH"], CONSTANTS["IMAGE_HEIGHT"]]
-        # To render 960x540 images
-        cam_rig["intrinsics"][0] /= 1920 / CONSTANTS["IMAGE_WIDTH"]
-        cam_rig["intrinsics"][4] /= 1080 / CONSTANTS["IMAGE_HEIGHT"]
-        cam_rig["intrinsics"][2] = CONSTANTS["IMAGE_WIDTH"]
-        cam_rig["intrinsics"][5] = CONSTANTS["IMAGE_HEIGHT"]
-
-    cam_poses = []
-    with open(os.path.join(PROJECT_HOME, "data", city_name, "CameraPoses.csv")) as fp:
-        reader = csv.DictReader(fp)
-        cam_poses = [
-            scripts.dataset_generator.get_camera_poses(r, seg_volume.size())
-            for r in reader
-        ]
+    cam_poses = get_camera_poses(dataset)
 
     logging.info("Rendering videos ...")
+    gr = dgr.GaussianRasterizerWrapper(
+        np.array(CONSTANTS[dataset]["K"], dtype=np.float32).reshape((3, 3)),
+        CONSTANTS[dataset]["SENSOR_SIZE"],
+        flip_lr=True,
+        flip_ud=dataset == "KITTI_360",
+        device=torch.device("cuda"),
+    )
     frames = []
     for f_idx, cam_pose in enumerate(tqdm(cam_poses)):
         img = render(
-            patch_size,
-            seg_volume,
-            hf_seg,
-            cam_rig,
+            dataset,
+            projections,
+            centers,
+            style_lut,
             cam_pose,
-            gancraft_bg,
-            gancraft_fg,
-            footprint_bboxes,
-            bg_z,
-            building_zs,
+            gr,
+            bldg_model,
+            car_model,
+            rest_model,
         )
         img = (utils.helpers.tensor_to_image(img, "RGB") * 255).astype(np.uint8)
         frames.append(img[..., ::-1])
-        # cv2.imwrite("output/test.jpg", img[..., ::-1])
         cv2.imwrite("output/render/%04d.jpg" % f_idx, img[..., ::-1])
 
     get_video(frames, output_file)
@@ -430,23 +584,21 @@ if __name__ == "__main__":
         level=logging.INFO,
     )
     parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", default="GOOGLE_EARTH")
     parser.add_argument(
-        "--gancraft_bg_ckpt",
-        default=os.path.join(PROJECT_HOME, "output", "gancraft-bg.pth"),
+        "--dataset_dir", default=os.path.join(PROJECT_HOME, "data", "google-earth")
     )
     parser.add_argument(
-        "--gancraft_fg_ckpt",
-        default=os.path.join(PROJECT_HOME, "output", "gancraft-fg.pth"),
+        "--bldg_ckpt",
+        default=os.path.join(PROJECT_HOME, "output", "bldg.pth"),
     )
     parser.add_argument(
-        "--patch_height",
-        default=CONSTANTS["IMAGE_HEIGHT"] // 4,
-        type=int,
+        "--car_ckpt",
+        default=os.path.join(PROJECT_HOME, "output", "car.pth"),
     )
     parser.add_argument(
-        "--patch_width",
-        default=CONSTANTS["IMAGE_WIDTH"] // 4,
-        type=int,
+        "--rest_ckpt",
+        default=os.path.join(PROJECT_HOME, "output", "rest.pth"),
     )
     parser.add_argument(
         "--output_file",
@@ -454,10 +606,11 @@ if __name__ == "__main__":
         type=str,
     )
     args = parser.parse_args()
-
     main(
-        (args.patch_height, args.patch_width),
+        args.dataset,
+        args.dataset_dir,
         args.output_file,
-        args.gancraft_bg_ckpt,
-        args.gancraft_fg_ckpt,
+        args.bldg_ckpt,
+        args.car_ckpt,
+        args.rest_ckpt,
     )
