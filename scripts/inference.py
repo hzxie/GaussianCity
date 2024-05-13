@@ -4,11 +4,10 @@
 # @Author: Haozhe Xie
 # @Date:   2024-01-18 11:45:08
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-13 00:08:12
+# @Last Modified at: 2024-05-13 09:00:34
 # @Email:  root@haozhexie.com
 
 import argparse
-import copy
 import cv2
 import json
 import logging
@@ -148,17 +147,7 @@ def _get_kitti_360_camera_poses():
     raise NotImplementedError
 
 
-def render(
-    dataset,
-    projections,
-    centers,
-    style_lut,
-    cam_pose,
-    gr,
-    bldg_model,
-    car_model,
-    rest_model,
-):
+def render(dataset, projections, centers, style_lut, cam_pose, gr, models):
     cam_quat = np.array(
         [cam_pose["qx"], cam_pose["qy"], cam_pose["qz"], cam_pose["qw"]],
         dtype=np.float32,
@@ -169,8 +158,9 @@ def render(
     local_projections, pts = _get_bev_points(dataset, projections, cam_pos, cam_quat)
     scales = utils.helpers.get_point_scales(pts[:, [3]], pts[:, [4]])
 
-    pts = _get_normalized_pt_cords(pts, centers)
+    pts, batch_idx = _get_normalized_pt_cords(pts, centers)
     (
+        batch_idx,
         pts,
         scales,
         instances,
@@ -179,27 +169,21 @@ def render(
         proj_seg,
         proj_tlp,
         proj_aff_mat,
-    ) = _get_tensors(dataset, pts, scales, local_projections)
+    ) = _get_tensors(dataset, batch_idx, pts, scales, local_projections)
     bldg_idx, car_idx, rest_idx = _get_pt_indexes_by_models(
-        classes, bldg_model, car_model
+        classes, models["BLDG"], models["CAR"]
     )
     abs_xyz, scales, pt_attrs = _get_pt_attrs_by_models(
         dataset,
+        batch_idx,
         pts,
         scales,
         classes,
         instances,
         style_lut,
-        proj_hf,
-        proj_seg,
-        proj_tlp,
-        proj_aff_mat,
-        bldg_idx,
-        car_idx,
-        rest_idx,
-        bldg_model,
-        car_model,
-        rest_model,
+        {"TD_HF": proj_hf, "SEG": proj_seg, "TLP": proj_tlp, "AFFMAT": proj_aff_mat},
+        {"BLDG": bldg_idx, "CAR": car_idx, "REST": rest_idx},
+        models,
     )
     gs_pts = utils.helpers.get_gaussian_points(abs_xyz, scales, pt_attrs)
     with torch.no_grad():
@@ -283,7 +267,7 @@ def _get_bev_points(dataset, projections, cam_pos, cam_quat):
 def _get_normalized_pt_cords(pts, centers):
     instances = np.unique(pts[:, -1])
     rel_cords = pts[:, :3].copy().astype(np.float32)
-    batch_idx = np.zeros((pts.shape[0], 1), dtype=np.float32)
+    batch_idx = np.zeros((pts.shape[0], 1), dtype=np.int32)
     for idx, ins in enumerate(instances):
         is_pts = pts[:, -1] == ins
         cx, cy, w, h, d = centers[ins]
@@ -295,10 +279,11 @@ def _get_normalized_pt_cords(pts, centers):
         )
         batch_idx[is_pts, 0] = idx
 
-    return np.concatenate((pts, rel_cords, batch_idx), axis=1)
+    return np.concatenate((pts, rel_cords), axis=1), batch_idx
 
 
-def _get_tensors(dataset, pts, scales, local_projections):
+def _get_tensors(dataset, batch_idx, pts, scales, local_projections):
+    batch_idx = utils.helpers.var_or_cuda(torch.from_numpy(batch_idx[None, ...]))
     pts = utils.helpers.var_or_cuda(torch.from_numpy(pts[None, ...]))
     scales = utils.helpers.var_or_cuda(scales[None, ...])
     instances = pts[:, :, [4]]
@@ -325,7 +310,17 @@ def _get_tensors(dataset, pts, scales, local_projections):
         if "tlp" in local_projections
         else None
     )
-    return pts, scales, instances, classes, proj_hf, proj_seg, proj_tlp, proj_aff_mat
+    return (
+        batch_idx,
+        pts,
+        scales,
+        instances,
+        classes,
+        proj_hf,
+        proj_seg,
+        proj_tlp,
+        proj_aff_mat,
+    )
 
 
 def _get_onehot_seg(mask, n_classes):
@@ -386,39 +381,41 @@ def _get_pt_indexes_by_models(classes, bldg_model, car_model):
 
 def _get_pt_attrs_by_models(
     dataset,
+    batch_idx,
     pts,
     scales,
     classes,
     instances,
     style_lut,
-    proj_hf,
-    proj_seg,
-    proj_tlp,
-    proj_aff_mat,
-    bldg_idx,
-    car_idx,
-    rest_idx,
-    bldg_model,
-    car_model,
-    rest_model,
+    projections,
+    indexes,
+    models,
 ):
     reordered_abs_xyz = []
     reordered_scales = []
     reordered_pt_attrs = {}
-    # TODO: add bldg back
-    for idx, model in zip([car_idx, rest_idx], [car_model, rest_model]):
-        if torch.sum(idx) == 0:
+    for k in models.keys():
+        idx = indexes[k]
+        model = models[k]
+        if torch.sum(idx) == 0 or model is None:
             continue
 
+        # Make batch_idx contiguous and starts from 0
+        _batch_idx = batch_idx[:, idx].clone()
+        _batch_idxes = torch.unique(_batch_idx)
+        for i, bi in enumerate(_batch_idxes):
+            _batch_idx[_batch_idx == bi] = i
+        
         pt_attrs = _get_gaussian_attributes(
             dataset,
+            _batch_idx[..., 0],
             pts[:, idx],
             classes[:, idx],
             _get_z(instances[:, idx], style_lut),
-            proj_hf,
-            proj_seg,
-            proj_tlp,
-            proj_aff_mat,
+            projections["TD_HF"],
+            projections["SEG"],
+            projections["TLP"],
+            projections["AFFMAT"],
             model,
         )
         reordered_abs_xyz.append(pts[:, idx, :3])
@@ -429,17 +426,18 @@ def _get_pt_attrs_by_models(
             reordered_pt_attrs[k].append(v)
 
     for k, v in reordered_pt_attrs.items():
-        reordered_pt_attrs[k] = torch.cat(v, dim=0)
+        reordered_pt_attrs[k] = torch.cat(v, dim=1)
 
     return (
-        torch.cat(reordered_abs_xyz, dim=0),
-        torch.cat(reordered_scales, dim=0),
+        torch.cat(reordered_abs_xyz, dim=1),
+        torch.cat(reordered_scales, dim=1),
         reordered_pt_attrs,
     )
 
 
 def _get_gaussian_attributes(
     dataset,
+    batch_idx,
     pts,
     classes,
     zs,
@@ -451,7 +449,6 @@ def _get_gaussian_attributes(
 ):
     abs_xyz = pts[:, :, :3]
     rel_xyz = pts[:, :, 5:8]
-    bch_idx = pts[:, :, 8].long()
     scales = pts[:, :, [3]] * CONSTANTS[dataset]["POINT_SCALE_FACTOR"]
     scales = utils.helpers.get_point_scales(
         scales,
@@ -466,7 +463,7 @@ def _get_gaussian_attributes(
         (CONSTANTS[dataset]["PROJ_SIZE"], CONSTANTS[dataset]["PROJ_SIZE"]),
     )
     with torch.no_grad():
-        pt_attrs = model(proj_uv, rel_xyz, bch_idx, onehots, zs, proj_hf, proj_seg)
+        pt_attrs = model(proj_uv, rel_xyz, batch_idx, onehots, zs, proj_hf, proj_seg)
 
     return pt_attrs
 
@@ -488,7 +485,7 @@ def _google_earth_instances_to_classes(instances):
         instances >= scripts.dataset_generator.CONSTANTS["BLDG_INS_MIN_ID"]
     ) & (instances % 2 == 1)
 
-    classes = copy.deepcopy(instances)
+    classes = instances.clone()
     classes[bldg_facade_idx] = scripts.dataset_generator.CLASSES["GOOGLE_EARTH"][
         "BLDG_FACADE"
     ]
@@ -511,7 +508,7 @@ def _kitti_360_instances_to_classes(instances):
     )
     car_idx = instances >= CONSTANTS["CAR_INS_MIN_ID"]
 
-    classes = copy.deepcopy(instances)
+    classes = instances.clone()
     classes[bldg_facade_idx] = scripts.dataset_generator.CLASSES["GOOGLE_EARTH"][
         "BLDG_FACADE"
     ]
@@ -567,9 +564,7 @@ def main(dataset, dataset_dir, output_file, bldg_ckpt, car_ckpt, rest_ckpt):
             style_lut,
             cam_pose,
             gr,
-            bldg_model,
-            car_model,
-            rest_model,
+            {"BLDG": bldg_model, "CAR": car_model, "REST": rest_model},
         )
         img = (utils.helpers.tensor_to_image(img, "RGB") * 255).astype(np.uint8)
         frames.append(img[..., ::-1])
