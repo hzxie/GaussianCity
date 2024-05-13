@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-01-18 11:45:08
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-13 09:00:34
+# @Last Modified at: 2024-05-13 11:11:18
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -61,6 +61,9 @@ def _get_model(dataset, ckpt_file_path):
         model.output_device = torch.device("cpu")
 
     model.load_state_dict(ckpt["gaussian_g"], strict=False)
+    if "module.z" in ckpt["gaussian_g"]:
+        model.module.z = ckpt["gaussian_g"]["module.z"]
+
     return model
 
 
@@ -97,8 +100,17 @@ def get_city_projections(dataset_dir):
     return metadata, projections, centers
 
 
-def get_style_lut(centers, z_dim=256):
-    return {ins: torch.rand(1, z_dim) for ins in centers.keys()}
+def get_style_lut(centers, models, z_dim=256):
+    lut = {ins: torch.rand(1, z_dim) for ins in centers.keys()}
+    for v in models.values():
+        if v is None:
+            continue
+        if hasattr(v.module, "z"):
+            zs = v.module.z
+            lut.update(
+                {ins: zs[ins].unsqueeze(0) for ins in range(100, zs.size(0))}
+            )
+    return lut
 
 
 def get_camera_poses(dataset):
@@ -405,7 +417,7 @@ def _get_pt_attrs_by_models(
         _batch_idxes = torch.unique(_batch_idx)
         for i, bi in enumerate(_batch_idxes):
             _batch_idx[_batch_idx == bi] = i
-        
+
         pt_attrs = _get_gaussian_attributes(
             dataset,
             _batch_idx[..., 0],
@@ -542,7 +554,14 @@ def main(dataset, dataset_dir, output_file, bldg_ckpt, car_ckpt, rest_ckpt):
     metadata, projections, centers = get_city_projections(dataset_dir)
 
     logging.info("Generating style look-up table ...")
-    style_lut = get_style_lut(centers)
+    style_lut = get_style_lut(
+        centers,
+        {
+            "BLDG": bldg_model,
+            "CAR": car_model,
+            "REST": rest_model,
+        },
+    )
 
     logging.info("Generating camera poses ...")
     cam_poses = get_camera_poses(dataset)
@@ -570,7 +589,7 @@ def main(dataset, dataset_dir, output_file, bldg_ckpt, car_ckpt, rest_ckpt):
         frames.append(img[..., ::-1])
         cv2.imwrite("output/render/%04d.jpg" % f_idx, img[..., ::-1])
 
-    get_video(frames, output_file)
+    get_video(frames, CONSTANTS[dataset]["SENSOR_SIZE"], output_file)
 
 
 if __name__ == "__main__":
