@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-01-18 11:45:08
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-13 11:11:18
+# @Last Modified at: 2024-05-13 19:49:42
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -83,8 +83,8 @@ def get_models(dataset, bldg_ckpt, car_ckpt, rest_ckpt):
 
 def get_city_projections(dataset_dir):
     cities = sorted(os.listdir(dataset_dir))
-    # city_dir = os.path.join(dataset_dir, np.random.choice(cities))
-    city_dir = os.path.join(dataset_dir, cities[0])
+    city = np.random.choice(cities)
+    city_dir = os.path.join(dataset_dir, city)
 
     proj_dir = os.path.join(city_dir, "Projection")
     projections = scripts.dataset_generator.load_projections(proj_dir)
@@ -105,10 +105,13 @@ def get_style_lut(centers, models, z_dim=256):
     for v in models.values():
         if v is None:
             continue
+
+        keys = [k for k in centers.keys()]
         if hasattr(v.module, "z"):
             zs = v.module.z
             lut.update(
-                {ins: zs[ins].unsqueeze(0) for ins in range(100, zs.size(0))}
+                {ins: zs[ins].unsqueeze(0) for ins in keys}
+                # {ins: zs[np.random.choice(keys)].unsqueeze(0) for ins in keys}
             )
     return lut
 
@@ -168,20 +171,25 @@ def render(dataset, projections, centers, style_lut, cam_pose, gr, models):
         [cam_pose["tx"], cam_pose["ty"], cam_pose["tz"]], dtype=np.float32
     )
     local_projections, pts = _get_bev_points(dataset, projections, cam_pos, cam_quat)
-    scales = utils.helpers.get_point_scales(pts[:, [3]], pts[:, [4]])
 
     pts, batch_idx = _get_normalized_pt_cords(pts, centers)
     (
         batch_idx,
         pts,
-        scales,
-        instances,
-        classes,
         proj_hf,
         proj_seg,
         proj_tlp,
         proj_aff_mat,
-    ) = _get_tensors(dataset, batch_idx, pts, scales, local_projections)
+    ) = _get_tensors(dataset, batch_idx, pts, local_projections)
+
+    instances = pts[:, :, [4]]
+    classes = _instances_to_classes(dataset, instances)
+    scales = utils.helpers.get_point_scales(
+        pts[:, :, [3]] * CONSTANTS[dataset]["POINT_SCALE_FACTOR"],
+        classes,
+        CONSTANTS[dataset]["SPECIAL_Z_SCALE_CLASSES"].values(),
+    )
+
     bldg_idx, car_idx, rest_idx = _get_pt_indexes_by_models(
         classes, models["BLDG"], models["CAR"]
     )
@@ -197,6 +205,7 @@ def render(dataset, projections, centers, style_lut, cam_pose, gr, models):
         {"BLDG": bldg_idx, "CAR": car_idx, "REST": rest_idx},
         models,
     )
+
     gs_pts = utils.helpers.get_gaussian_points(abs_xyz, scales, pt_attrs)
     with torch.no_grad():
         fake_img = utils.helpers.get_gaussian_rasterization(
@@ -294,12 +303,9 @@ def _get_normalized_pt_cords(pts, centers):
     return np.concatenate((pts, rel_cords), axis=1), batch_idx
 
 
-def _get_tensors(dataset, batch_idx, pts, scales, local_projections):
+def _get_tensors(dataset, batch_idx, pts, local_projections):
     batch_idx = utils.helpers.var_or_cuda(torch.from_numpy(batch_idx[None, ...]))
     pts = utils.helpers.var_or_cuda(torch.from_numpy(pts[None, ...]))
-    scales = utils.helpers.var_or_cuda(scales[None, ...])
-    instances = pts[:, :, [4]]
-    classes = _instances_to_classes(dataset, instances)
     proj_hf = utils.helpers.var_or_cuda(
         torch.from_numpy(local_projections["TD_HF"][None, None, ...])
     )
@@ -325,9 +331,6 @@ def _get_tensors(dataset, batch_idx, pts, scales, local_projections):
     return (
         batch_idx,
         pts,
-        scales,
-        instances,
-        classes,
         proj_hf,
         proj_seg,
         proj_tlp,
@@ -461,12 +464,6 @@ def _get_gaussian_attributes(
 ):
     abs_xyz = pts[:, :, :3]
     rel_xyz = pts[:, :, 5:8]
-    scales = pts[:, :, [3]] * CONSTANTS[dataset]["POINT_SCALE_FACTOR"]
-    scales = utils.helpers.get_point_scales(
-        scales,
-        classes,
-        CONSTANTS[dataset]["SPECIAL_Z_SCALE_CLASSES"].values(),
-    )
     onehots = utils.helpers.get_one_hot(classes, CONSTANTS[dataset]["N_CLASSES"])
     proj_uv = utils.helpers.get_projection_uv(
         abs_xyz,
