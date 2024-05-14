@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-02 21:37:24
+# @Last Modified at: 2024-05-14 20:05:15
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -139,7 +139,7 @@ def get_z(instances, z_dim):
 
     unique_instances = [i.item() for i in torch.unique(instances).short()]
     unique_z = {
-        ui: torch.rand(1, z_dim).to(instances.device) for ui in unique_instances
+        ui: torch.randn(1, z_dim).to(instances.device) for ui in unique_instances
     }
 
     z = {}
@@ -177,21 +177,12 @@ def repeat_pts(pts, repeat=1):
     return torch.cat([pts, idx], dim=-1)
 
 
-def get_projection_uv(xyz, proj_tlp, proj_aff_mat, proj_size):
+def get_projection_uv(xyz, proj_tlp, proj_size):
     n_pts = xyz.size(1)
-    if proj_aff_mat is None or proj_tlp is None:
+    if proj_tlp is None:
         proj_uv = xyz[..., :2].clone()
     else:
-        proj_xy1 = torch.cat(
-            [
-                xyz[..., :2] - proj_tlp.unsqueeze(dim=1),
-                torch.ones(1, n_pts, 1, device=xyz.device),
-            ],
-            dim=-1,
-        )
-        proj_uv = torch.bmm(proj_aff_mat, proj_xy1.permute(0, 2, 1)).permute(0, 2, 1)[
-            ..., :2
-        ]
+        proj_uv = xyz[..., :2] - proj_tlp.unsqueeze(dim=1)
 
     assert proj_uv.size() == (xyz.size(0), n_pts, 2)
     proj_uv[..., 0] /= proj_size[0]

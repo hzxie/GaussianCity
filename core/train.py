@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-02 19:13:37
+# @Last Modified at: 2024-05-14 19:59:58
 # @Email:  root@haozhexie.com
 
 import logging
@@ -197,11 +197,6 @@ def train(cfg):
                 if "proj/tlp" in data
                 else None
             )
-            proj_aff_mat = (
-                utils.helpers.var_or_cuda(data["proj/affmat"], gaussian_g.device)
-                if "proj/tlp" in data
-                else None
-            )
             msk = utils.helpers.var_or_cuda(data["msk"], gaussian_g.device)
             gan_loss_weights = F.interpolate(msk, scale_factor=0.25)
 
@@ -222,7 +217,7 @@ def train(cfg):
             # Points positions at projection maps
             proj_size = train_dataset.get_proj_size()
             proj_uv = utils.helpers.get_projection_uv(
-                abs_xyz, proj_tlp, proj_aff_mat, proj_size
+                abs_xyz, proj_tlp, proj_size
             )
 
             # Discriminator Update Step

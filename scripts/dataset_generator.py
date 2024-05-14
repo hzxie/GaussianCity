@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-07 21:13:15
+# @Last Modified at: 2024-05-14 20:01:50
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -1296,12 +1296,11 @@ def get_local_projections(projections, local_cords, map_size):
 
     local_projections = {m["name"]: projections[m["name"]].copy() for m in MAPS}
     if local_cords is not None:
-        points = np.array(
-            [local_cords[1], local_cords[2], local_cords[3], local_cords[4]]
-        )
+        points = np.array([local_cords[1], local_cords[2], local_cords[0]])
+        cx, cy = np.mean(points, axis=0).astype(np.int32)
         # Crop the image
-        x_min, x_max, y_min, y_max = _get_crop(points)
-        points -= [x_min, y_min]
+        x_min, x_max = cx - map_size // 2, cx + map_size // 2
+        y_min, y_max = cy - map_size // 2, cy + map_size // 2
         for m in MAPS:
             m_name = m["name"]
             m_type = m["dtype"]
@@ -1327,18 +1326,8 @@ def get_local_projections(projections, local_cords, map_size):
             local_projections[m_name] = local_projections[m_name][
                 y_min:y_max, x_min:x_max
             ].astype(m_type)
-
-        # Rotate the image
-        M, width, height = _get_rotation(points)
         # The top-left point of the local projection
         local_projections["tlp"] = np.array([x_min, y_min])
-        # The affine matrix of the local projection
-        local_projections["affmat"] = M
-        for m in MAPS:
-            m_name = m["name"]
-            local_projections[m_name] = cv2.warpPerspective(
-                local_projections[m_name], M, (width, height)
-            )
 
     for m in MAPS:
         m_name = m["name"]
@@ -1350,32 +1339,6 @@ def get_local_projections(projections, local_cords, map_size):
             interpolation=m_intp,
         )
     return local_projections
-
-
-def _get_crop(points):
-    x_min = points[:, 0].min()
-    x_max = points[:, 0].max()
-    y_min = points[:, 1].min()
-    y_max = points[:, 1].max()
-    return x_min, x_max, y_min, y_max
-
-
-def _get_rotation(points):
-    width = np.linalg.norm(points[0] - points[1])
-    # assert abs(np.linalg.norm(points[2] - points[3]) - width) < 1
-    height = np.linalg.norm(points[1] - points[2])
-    # assert abs(np.linalg.norm(points[0] - points[3]) - height) < 1
-    src_pts = np.array(points, dtype=np.float32)
-    dst_pts = np.array(
-        [
-            [0, 0],
-            [width - 1, 0],
-            [width - 1, height - 1],
-            [0, height - 1],
-        ],
-        dtype=np.float32,
-    )
-    return cv2.getPerspectiveTransform(src_pts, dst_pts), int(width), int(height)
 
 
 def get_points_from_projections(

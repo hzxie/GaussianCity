@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:58:23
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-02 15:56:58
+# @Last Modified at: 2024-05-14 19:59:43
 # @Email:  root@haozhexie.com
 
 import logging
@@ -72,11 +72,6 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
                 if "proj/tlp" in data
                 else None
             )
-            proj_aff_mat = (
-                utils.helpers.var_or_cuda(data["proj/affmat"], gaussian_g.device)
-                if "proj/tlp" in data
-                else None
-            )
 
             # Split pts into attributes
             abs_xyz = pts[:, :, :3]
@@ -97,7 +92,7 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
             # Points positions at projection maps
             proj_size = test_data_loader.dataset.get_proj_size()
             proj_uv = utils.helpers.get_projection_uv(
-                abs_xyz, proj_tlp, proj_aff_mat, proj_size
+                abs_xyz, proj_tlp, proj_size
             )
 
             pt_rgbs = gaussian_g(
