@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-07 22:19:06
+# @Last Modified at: 2024-05-15 22:05:59
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -143,7 +143,7 @@ cfg.NETWORK.GAUSSIAN.ATTR_FACTORS                 = {"rgb": 2} # "xyz": 40, "opa
 cfg.NETWORK.GAUSSIAN.ATTR_N_LAYERS                = {"rgb": 1} # "xyz": 1, "opacity": 1
 cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE           = 128
 cfg.NETWORK.GAUSSIAN.PTV3                         = EasyDict()
-cfg.NETWORK.GAUSSIAN.PTV3.ORDER                   = ("z")
+cfg.NETWORK.GAUSSIAN.PTV3.ORDER                   = ("cord")
 cfg.NETWORK.GAUSSIAN.PTV3.STRIDE                  = (2, 2, 2, 2)
 cfg.NETWORK.GAUSSIAN.PTV3.ENC_DEPTHS              = (2, 2, 2, 6, 2)
 cfg.NETWORK.GAUSSIAN.PTV3.ENC_CHANNELS            = (32, 64, 128, 256, 512)

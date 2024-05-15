@@ -4,7 +4,7 @@
 # @Author: Xiaoyang Wu <xiaoyang.wu.cs@gmail.com>
 # @Date:   2024-04-01 16:31:36
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-04 19:47:20
+# @Last Modified at: 2024-05-15 22:05:09
 # @Email:  root@haozhexie.com
 # Ref:
 # - https://github.com/Pointcept/PointTransformerV3/blob/main/model.py
@@ -93,11 +93,13 @@ class KeyLUT:
 
 
 class Serializator:
-    def encode(self, grid_coord, batch=None, depth=16, order="z"):
-        assert order in {"z", "z-trans", "hilbert", "hilbert-trans"}
+    def encode(self, grid_coord, grid_size=0.01, batch=None, depth=16, order="cord"):
+        assert order in {"cord", "z", "z-trans", "hilbert", "hilbert-trans"}
         if order in ["z", "z-trans"]:
             self.key_lut = KeyLUT()
-        if order == "z":
+        if order == "cord":
+            code = self.cord_encode(grid_coord, grid_size)
+        elif order == "z":
             code = self.z_order_encode(grid_coord, depth=depth)
         elif order == "z-trans":
             code = self.z_order_encode(grid_coord[:, [1, 0, 2]], depth=depth)
@@ -113,6 +115,16 @@ class Serializator:
             code = batch << depth * 3 | code
 
         return code
+
+    def cord_encode(self, grid_coord: torch.Tensor, grid_size: float):
+        x, y, z = (
+            grid_coord[:, 0].long(),
+            grid_coord[:, 1].long(),
+            grid_coord[:, 2].long(),
+        )
+        # we block the support to batch, maintain batched code in Point class
+        code = x / grid_size ** 2 + y / grid_size + z
+        return code.long()
 
     def z_order_encode(self, grid_coord: torch.Tensor, depth: int = 16):
         x, y, z = (
@@ -407,7 +419,7 @@ class Point(addict.Dict):
         #   ...
         #  OrderN ([n])] (k, n)
         code = [
-            self.serializator.encode(self.grid_coord, self.batch, depth, order=order_)
+            self.serializator.encode(self.grid_coord, self.grid_size, self.batch, depth, order=order_)
             for order_ in order
         ]
         code = torch.stack(code)
@@ -1124,7 +1136,7 @@ class PointTransformerV3(PointModule):
     def __init__(
         self,
         in_channels=6,
-        order=("z", "z-trans", "hilbert", "hilbert-trans"),
+        order=("cord"),
         stride=(2, 2, 2, 2),
         enc_depths=(2, 2, 2, 6, 2),
         enc_channels=(32, 64, 128, 256, 512),
