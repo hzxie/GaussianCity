@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-01-18 11:45:08
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-13 19:49:42
+# @Last Modified at: 2024-05-15 16:53:37
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -179,7 +179,6 @@ def render(dataset, projections, centers, style_lut, cam_pose, gr, models):
         proj_hf,
         proj_seg,
         proj_tlp,
-        proj_aff_mat,
     ) = _get_tensors(dataset, batch_idx, pts, local_projections)
 
     instances = pts[:, :, [4]]
@@ -201,7 +200,7 @@ def render(dataset, projections, centers, style_lut, cam_pose, gr, models):
         classes,
         instances,
         style_lut,
-        {"TD_HF": proj_hf, "SEG": proj_seg, "TLP": proj_tlp, "AFFMAT": proj_aff_mat},
+        {"TD_HF": proj_hf, "SEG": proj_seg, "TLP": proj_tlp},
         {"BLDG": bldg_idx, "CAR": car_idx, "REST": rest_idx},
         models,
     )
@@ -321,20 +320,12 @@ def _get_tensors(dataset, batch_idx, pts, local_projections):
         if "tlp" in local_projections
         else None
     )
-    proj_aff_mat = (
-        utils.helpers.var_or_cuda(
-            torch.from_numpy(local_projections["affmat"][None, ...])
-        )
-        if "tlp" in local_projections
-        else None
-    )
     return (
         batch_idx,
         pts,
         proj_hf,
         proj_seg,
         proj_tlp,
-        proj_aff_mat,
     )
 
 
@@ -430,7 +421,6 @@ def _get_pt_attrs_by_models(
             projections["TD_HF"],
             projections["SEG"],
             projections["TLP"],
-            projections["AFFMAT"],
             model,
         )
         reordered_abs_xyz.append(pts[:, idx, :3])
@@ -459,7 +449,6 @@ def _get_gaussian_attributes(
     proj_hf,
     proj_seg,
     proj_tlp,
-    proj_aff_mat,
     model,
 ):
     abs_xyz = pts[:, :, :3]
@@ -468,7 +457,6 @@ def _get_gaussian_attributes(
     proj_uv = utils.helpers.get_projection_uv(
         abs_xyz,
         proj_tlp,
-        proj_aff_mat,
         (CONSTANTS[dataset]["PROJ_SIZE"], CONSTANTS[dataset]["PROJ_SIZE"]),
     )
     with torch.no_grad():
