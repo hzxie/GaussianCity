@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-14 20:01:50
+# @Last Modified at: 2024-05-31 16:18:39
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -1692,6 +1692,7 @@ def main(dataset, data_dir, osm_dir, is_debug):
                 CLASSES[dataset]["NULL"],
                 dataset == "CITY_SAMPLE",
             )
+
             if dataset == "KITTI_360":
                 vp_map = np.fliplr(vp_map)
                 ins_map = np.fliplr(ins_map)
@@ -1714,15 +1715,16 @@ def main(dataset, data_dir, osm_dir, is_debug):
             assert len(np.unique(vp_map)) == len(points)
             # # Debug: Render Instance Map with Gaussian Splatting
             # # Revert the cx value for the KITTI 360 dataset. Otherwise, the image cannot be aligned perfectly.
+            # _cam_rig = copy.deepcopy(cam_rig)
             # if dataset == "KITTI_360":
-            #     cam_rig["intrinsics"][2] = (
+            #     _cam_rig["intrinsics"][2] = (
             #         cam_rig["sensor_size"][0] - cam_rig["intrinsics"][2]
             #     )
             # scales = scales[vp_idx]
             # import extensions.diff_gaussian_rasterization as dgr
             # gr = dgr.GaussianRasterizerWrapper(
-            #     np.array(cam_rig["intrinsics"], dtype=np.float32).reshape((3, 3)),
-            #     cam_rig["sensor_size"],
+            #     np.array(_cam_rig["intrinsics"], dtype=np.float32).reshape((3, 3)),
+            #     _cam_rig["sensor_size"],
             #     flip_lr=True,
             #     flip_ud=dataset == "KITTI_360",
             #     device=torch.device("cuda"),
@@ -1743,6 +1745,7 @@ def main(dataset, data_dir, osm_dir, is_debug):
             #         "output/test.jpg",
             #         img.permute(1, 2, 0).cpu().numpy()[..., ::-1] * 255,
             #     )
+
             Image.fromarray(ins_map.astype(np.uint16)).save(
                 os.path.join(
                     city_instance_map_dir,

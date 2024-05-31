@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-07 22:20:18
+# @Last Modified at: 2024-05-31 16:54:11
 # @Email:  root@haozhexie.com
 
 import copy
@@ -370,7 +370,7 @@ class Kitti360Dataset(Dataset):
 
         files = [
             {
-                "name": "%s/%010d" % (c, i),
+                "name": "%s/%010d" % (c, f),
                 # Camera parameters
                 "Rt": os.path.join(cfg.DIR, c, "CameraPoses.csv"),
                 # The XY centers of the instances
@@ -399,8 +399,8 @@ class Kitti360Dataset(Dataset):
                 # Precomputed Points in the viewpoint (scripts/dataset_generator.py)
                 "pts": os.path.join(cfg.DIR, c, "Points", "%010d.pkl" % f),
             }
-            for c, v in view_idx.items()
-            for i, f in enumerate(v)
+            for c, v in view_idx.items()  # c: city, v: views
+            for f in v
         ]
         if cfg.PIN_MEMORY:
             self.pin_memory(files, cfg.PIN_MEMORY)

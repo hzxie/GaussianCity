@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-14 19:59:58
+# @Last Modified at: 2024-05-31 16:51:51
 # @Email:  root@haozhexie.com
 
 import logging
@@ -216,9 +216,7 @@ def train(cfg):
             z = utils.helpers.get_z(instances, cfg.NETWORK.GAUSSIAN.Z_DIM)
             # Points positions at projection maps
             proj_size = train_dataset.get_proj_size()
-            proj_uv = utils.helpers.get_projection_uv(
-                abs_xyz, proj_tlp, proj_size
-            )
+            proj_uv = utils.helpers.get_projection_uv(abs_xyz, proj_tlp, proj_size)
 
             # Discriminator Update Step
             if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:

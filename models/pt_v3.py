@@ -123,7 +123,7 @@ class Serializator:
             grid_coord[:, 2].long(),
         )
         # we block the support to batch, maintain batched code in Point class
-        code = x / grid_size ** 2 + y / grid_size + z
+        code = x / grid_size**2 + y / grid_size + z
         return code.long()
 
     def z_order_encode(self, grid_coord: torch.Tensor, depth: int = 16):
@@ -419,7 +419,9 @@ class Point(addict.Dict):
         #   ...
         #  OrderN ([n])] (k, n)
         code = [
-            self.serializator.encode(self.grid_coord, self.grid_size, self.batch, depth, order=order_)
+            self.serializator.encode(
+                self.grid_coord, self.grid_size, self.batch, depth, order=order_
+            )
             for order_ in order
         ]
         code = torch.stack(code)

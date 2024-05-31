@@ -91,9 +91,7 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
             z = utils.helpers.get_z(instances, cfg.NETWORK.GAUSSIAN.Z_DIM)
             # Points positions at projection maps
             proj_size = test_data_loader.dataset.get_proj_size()
-            proj_uv = utils.helpers.get_projection_uv(
-                abs_xyz, proj_tlp, proj_size
-            )
+            proj_uv = utils.helpers.get_projection_uv(abs_xyz, proj_tlp, proj_size)
 
             pt_rgbs = gaussian_g(
                 proj_uv, rel_xyz, bch_idx, onehots, z, proj_hf, proj_seg

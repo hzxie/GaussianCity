@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2019-08-02 10:22:03
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-25 15:13:38
+# @Last Modified at: 2024-05-31 16:52:55
 # @Email:  root@haozhexie.com
 
 import csv
@@ -104,7 +104,7 @@ class IO:
     def _read_csv(cls, file_path):
         with open(file_path) as f:
             reader = csv.DictReader(f)
-            return [r for r in reader]
+            return {int(r["id"]): r for r in reader}
 
     @classmethod
     def _read_json(cls, file_path):
