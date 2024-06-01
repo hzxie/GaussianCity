@@ -4,10 +4,11 @@
 # @Author: Haozhe Xie
 # @Date:   2024-01-18 11:45:08
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-15 16:53:37
+# @Last Modified at: 2024-05-31 18:25:11
 # @Email:  root@haozhexie.com
 
 import argparse
+import csv
 import cv2
 import json
 import logging
@@ -43,6 +44,8 @@ CONSTANTS = {
         "N_CLASSES": 8,
         "POINT_SCALE_FACTOR": 0.65,
         "SPECIAL_Z_SCALE_CLASSES": {"ROAD": 1, "ZONE": 6},
+        "PATCH_SIZE": 1280,
+        "PROJ_SIZE": 2048,
         "SENSOR_SIZE": (1408, 376),
         "K": [552.554261, 0, 682.049453, 0, 552.554261, 238.769549, 0, 0, 1],
     },
@@ -82,8 +85,14 @@ def get_models(dataset, bldg_ckpt, car_ckpt, rest_ckpt):
 
 
 def get_city_projections(dataset_dir):
-    cities = sorted(os.listdir(dataset_dir))
-    city = np.random.choice(cities)
+    cities = sorted(
+        [
+            d
+            for d in os.listdir(dataset_dir)
+            if os.path.isdir(os.path.join(dataset_dir, d))
+        ]
+    )
+    city = cities[0]  # np.random.choice(cities)
     city_dir = os.path.join(dataset_dir, city)
 
     proj_dir = os.path.join(city_dir, "Projection")
@@ -116,11 +125,11 @@ def get_style_lut(centers, models, z_dim=256):
     return lut
 
 
-def get_camera_poses(dataset):
+def get_camera_poses(dataset, metadata):
     if dataset == "GOOGLE_EARTH":
         return _get_google_earth_camera_poses()
     elif dataset == "KITTI_360":
-        return _get_kitti_360_camera_poses()
+        return _get_kitti_360_camera_poses(metadata["city_dir"])
     else:
         raise NotImplementedError
 
@@ -157,9 +166,10 @@ def _get_google_earth_camera_poses():
     return camera_poses
 
 
-def _get_kitti_360_camera_poses():
-    # TODO
-    raise NotImplementedError
+def _get_kitti_360_camera_poses(city_dir):
+    with open(os.path.join(city_dir, "CameraPoses.csv")) as f:
+        reader = csv.DictReader(f)
+        return [r for r in reader]
 
 
 def render(dataset, projections, centers, style_lut, cam_pose, gr, models):
@@ -221,9 +231,8 @@ def _get_bev_points(dataset, projections, cam_pos, cam_quat):
         CONSTANTS[dataset]["K"][0], CONSTANTS[dataset]["SENSOR_SIZE"][0]
     )
     fov_y = utils.helpers.intrinsic_to_fov(
-        CONSTANTS[dataset]["K"][1], CONSTANTS[dataset]["SENSOR_SIZE"][1]
+        CONSTANTS[dataset]["K"][4], CONSTANTS[dataset]["SENSOR_SIZE"][1]
     )
-
     cam_look_at = utils.helpers.get_camera_look_at(cam_pos, cam_quat)
     view_frustum_cords = (
         scripts.dataset_generator.get_view_frustum_cords(
@@ -495,24 +504,30 @@ def _google_earth_instances_to_classes(instances):
 def _kitti_360_instances_to_classes(instances):
     bldg_facade_idx = (
         (instances >= scripts.dataset_generator.CONSTANTS["BLDG_INS_MIN_ID"])
-        & (instances < scripts.dataset_generator.CONSTANTS["CAR_INS_MIN_ID"])
+        & (
+            instances
+            < scripts.dataset_generator.CONSTANTS["KITTI_360"]["CAR_INS_MIN_ID"]
+        )
         & (instances % 2 == 0)
     )
     bldg_roof_idx = (
         (instances >= scripts.dataset_generator.CONSTANTS["BLDG_INS_MIN_ID"])
-        & (instances < scripts.dataset_generator.CONSTANTS["CAR_INS_MIN_ID"])
+        & (
+            instances
+            < scripts.dataset_generator.CONSTANTS["KITTI_360"]["CAR_INS_MIN_ID"]
+        )
         & (instances % 2 == 1)
     )
-    car_idx = instances >= CONSTANTS["CAR_INS_MIN_ID"]
+    car_idx = (
+        instances >= scripts.dataset_generator.CONSTANTS["KITTI_360"]["CAR_INS_MIN_ID"]
+    )
 
     classes = instances.clone()
-    classes[bldg_facade_idx] = scripts.dataset_generator.CLASSES["GOOGLE_EARTH"][
+    classes[bldg_facade_idx] = scripts.dataset_generator.CLASSES["KITTI_360"][
         "BLDG_FACADE"
     ]
-    classes[bldg_roof_idx] = scripts.dataset_generator.CLASSES["GOOGLE_EARTH"][
-        "BLDG_ROOF"
-    ]
-    classes[car_idx] = scripts.dataset_generator.CLASSES["CAR"]
+    classes[bldg_roof_idx] = scripts.dataset_generator.CLASSES["KITTI_360"]["BLDG_ROOF"]
+    classes[car_idx] = scripts.dataset_generator.CLASSES["KITTI_360"]["CAR"]
     return classes
 
 
@@ -549,7 +564,7 @@ def main(dataset, dataset_dir, output_file, bldg_ckpt, car_ckpt, rest_ckpt):
     )
 
     logging.info("Generating camera poses ...")
-    cam_poses = get_camera_poses(dataset)
+    cam_poses = get_camera_poses(dataset, metadata)
 
     logging.info("Rendering videos ...")
     gr = dgr.GaussianRasterizerWrapper(
@@ -585,7 +600,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", default="GOOGLE_EARTH")
     parser.add_argument(
-        "--dataset_dir", default=os.path.join(PROJECT_HOME, "data", "google-earth")
+        "--data_dir", default=os.path.join(PROJECT_HOME, "data", "google-earth")
     )
     parser.add_argument(
         "--bldg_ckpt",
@@ -607,7 +622,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     main(
         args.dataset,
-        args.dataset_dir,
+        args.data_dir,
         args.output_file,
         args.bldg_ckpt,
         args.car_ckpt,
