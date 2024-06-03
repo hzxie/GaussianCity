@@ -679,12 +679,12 @@ def _get_kitti_360_bldg_roof(bbox3d):
     d14 = np.linalg.norm(pt1 - pt4)
     # Determine the shorter side
     assert d14 > d13 and d14 > d12
-    if d12 < d13:
-        pt5 = (pt1 + pt2) / 2
-        pt6 = (pt3 + pt4) / 2
-    else:
-        pt5 = (pt1 + pt3) / 2
-        pt6 = (pt2 + pt4) / 2
+    # Make sure pt1-pt2 is the shorter side
+    if d12 > d13:
+        pt2, pt3 = pt3, pt2
+
+    pt5 = (pt1 + pt2) / 2
+    pt6 = (pt3 + pt4) / 2
     # Regenerate vertices
     bbox3d["vertices"] = np.array(
         [
@@ -713,12 +713,12 @@ def _get_kitti_360_bldg_roof(bbox3d):
             [1, 2, 3],
             [4, 5, 6],
             [5, 6, 7],
-            [5, 8, 9],
-            [5, 7, 9],
-            [1, 3, 9],
-            [1, 8, 9],
             [1, 5, 8],
-            [3, 9, 7],
+            [5, 8, 9],
+            [3, 7, 8],
+            [7, 8, 9],
+            [1, 3, 8],
+            [5, 9, 7],
         ]
     )
     return bbox3d
@@ -726,10 +726,70 @@ def _get_kitti_360_bldg_roof(bbox3d):
 
 def _get_scaled_kitti_360_car(bbox3d, scales):
     center = np.mean(bbox3d["vertices"], axis=0)
-    # min_coords = np.min(bbox3d["vertices"], axis=0)
-    # max_coords = np.max(bbox3d["vertices"], axis=0)
-    # dimensions = max_coords - min_coords
     bbox3d["vertices"] = center + (bbox3d["vertices"] - center) * np.array(scales)
+    z_min, z_max = np.min(bbox3d["vertices"][:, 2]), np.max(bbox3d["vertices"][:, 2])
+    z_mid = z_min + (z_max - z_min) * 0.75
+
+    pt1 = bbox3d["vertices"][0, :2]
+    pt2 = bbox3d["vertices"][2, :2]
+    pt3 = bbox3d["vertices"][4, :2]
+    pt4 = bbox3d["vertices"][6, :2]
+    d12 = np.linalg.norm(pt1 - pt2)
+    d13 = np.linalg.norm(pt1 - pt3)
+    d14 = np.linalg.norm(pt1 - pt4)
+    # Make sure: assert d14 > d13 and d14 > d12
+    if d14 < d12:
+        pt2, pt4 = pt4, pt2
+    elif d14 < d13:
+        pt3, pt4 = pt4, pt3
+    # Make sure pt1-pt2 is the shortest side
+    if d12 > d13:
+        pt2, pt3 = pt3, pt2
+
+    pt5 = pt1 + (pt3 - pt1) * 0.25
+    pt6 = pt1 + (pt3 - pt1) * 0.75
+    pt7 = pt2 + (pt4 - pt2) * 0.25
+    pt8 = pt2 + (pt4 - pt2) * 0.75
+    # Regenerate vertices
+    bbox3d["vertices"] = np.array(
+        [
+            [pt1[0], pt1[1], z_min],    # 0
+            [pt2[0], pt2[1], z_min],    # 1
+            [pt3[0], pt3[1], z_min],    # 2
+            [pt4[0], pt4[1], z_min],    # 3
+            [pt1[0], pt1[1], z_mid],    # 4
+            [pt2[0], pt2[1], z_mid],    # 5
+            [pt3[0], pt3[1], z_mid],    # 6
+            [pt4[0], pt4[1], z_mid],    # 7
+            [pt5[0], pt5[1], z_max],    # 8
+            [pt6[0], pt6[1], z_max],    # 9
+            [pt7[0], pt7[1], z_max],    # 10
+            [pt8[0], pt8[1], z_max],    # 11
+        ]
+    )
+    # Regenerate faces
+    bbox3d["faces"] = np.array(
+        [
+            [0, 2, 4],
+            [2, 4, 6],
+            [2, 3, 6],
+            [3, 6, 7],
+            [0, 1, 4],
+            [1, 4, 5],
+            [1, 3, 5],
+            [3, 5, 7],
+            [8, 9, 10],
+            [9, 10, 11],
+            [4, 5, 8],
+            [5, 8, 10],
+            [6, 7, 9],
+            [7, 9, 11],
+            [4, 6, 8],
+            [6, 8, 9],
+            [5, 7, 10],
+            [7, 10, 11],
+        ]
+    )
     return bbox3d
 
 
@@ -853,7 +913,7 @@ def _get_kitti_360_projection(points):
         _x, _y, _z = x - x_min, y - y_min, z - z_min
         if i in [CLASSES["KITTI_360"]["ROAD"], CLASSES["KITTI_360"]["ZONE"]]:
             # The MAGIC NUMBER 3 makes the road and zone are better aligned with RGB images
-            _z -= 3
+            _z -= 10
 
         if tpd_hf[_y, _x] < _z:
             tpd_hf[_y, _x] = _z
