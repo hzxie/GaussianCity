@@ -144,6 +144,7 @@ CONSTANTS = {
         "PATCH_SIZE": 1280,
         "PROJECTION_SIZE": 2048,
         "CAR_INS_MIN_ID": 10000,
+        "OUTLIER_DIST_THRESHOLD": 2000,
         "SEG_MAP_PATTERN": "seg/%010d.png",
         "OUT_FILE_NAME_PATTERN": "%010d",
         "TREE_ASSETS_DIR": "/tmp/trees",
@@ -561,6 +562,7 @@ def _get_kitti_360_projections(city_dir):
 
     points = []
     instances = []
+    _get_kitti_360_points.cords = None
     for v in tqdm(annotations.values(), leave=False):
         p, i = _get_kitti_360_points(v)
         points.append(p)
@@ -753,18 +755,18 @@ def _get_scaled_kitti_360_car(bbox3d, scales):
     # Regenerate vertices
     bbox3d["vertices"] = np.array(
         [
-            [pt1[0], pt1[1], z_min],    # 0
-            [pt2[0], pt2[1], z_min],    # 1
-            [pt3[0], pt3[1], z_min],    # 2
-            [pt4[0], pt4[1], z_min],    # 3
-            [pt1[0], pt1[1], z_mid],    # 4
-            [pt2[0], pt2[1], z_mid],    # 5
-            [pt3[0], pt3[1], z_mid],    # 6
-            [pt4[0], pt4[1], z_mid],    # 7
-            [pt5[0], pt5[1], z_max],    # 8
-            [pt6[0], pt6[1], z_max],    # 9
-            [pt7[0], pt7[1], z_max],    # 10
-            [pt8[0], pt8[1], z_max],    # 11
+            [pt1[0], pt1[1], z_min],
+            [pt2[0], pt2[1], z_min],
+            [pt3[0], pt3[1], z_min],
+            [pt4[0], pt4[1], z_min],
+            [pt1[0], pt1[1], z_mid],
+            [pt2[0], pt2[1], z_mid],
+            [pt3[0], pt3[1], z_mid],
+            [pt4[0], pt4[1], z_mid],
+            [pt5[0], pt5[1], z_max],
+            [pt6[0], pt6[1], z_max],
+            [pt7[0], pt7[1], z_max],
+            [pt8[0], pt8[1], z_max],
         ]
     )
     # Regenerate faces
@@ -868,6 +870,7 @@ def _get_kitti_360_trees(bbox3d):
     return bbox3d
 
 
+@utils.helpers.static_vars(cords=None)
 def _get_kitti_360_points(bboxes):
     voxels = []
     instances = []
@@ -894,6 +897,38 @@ def _get_kitti_360_points(bboxes):
         _voxels[:, 0] += int(min_x)
         _voxels[:, 1] += int(min_y)
         _voxels[:, 2] += int(min_z)
+
+        # Remove outliner voxels in annotations
+        bbox_center = np.mean(_voxels[:, :2], axis=0)
+        if _get_kitti_360_points.cords is None:
+            _get_kitti_360_points.cords = [bbox_center]
+
+        cords = np.array(_get_kitti_360_points.cords)
+        delta_min_x = bbox_center[0] - np.min(cords[:, 0])
+        delta_max_x = np.max(cords[:, 0]) - bbox_center[0]
+        delta_min_y = bbox_center[1] - np.min(cords[:, 1])
+        delta_max_y = np.max(cords[:, 1]) - bbox_center[1]
+        if (
+            np.array([delta_min_x, delta_max_x, delta_min_y, delta_max_y])
+            < -CONSTANTS["KITTI_360"]["OUTLIER_DIST_THRESHOLD"]
+        ).any():
+            logging.warning(
+                "Ignore annotation %s due to the outlier voxels. "
+                "Mean cords: %s, Curr cords: %s. Distance: (%.2f, %.2f, %.2f, %.2f)."
+                % (
+                    bbox["name"],
+                    np.mean(cords, axis=0),
+                    np.mean(_voxels[:, :2], axis=0),
+                    delta_min_x,
+                    delta_max_x,
+                    delta_min_y,
+                    delta_max_y,
+                )
+            )
+            continue
+        else:
+            _get_kitti_360_points.cords.append(bbox_center)
+
         voxels.append(_voxels)
         instances.append([bbox["instance"]] * len(_voxels))
 
@@ -913,7 +948,7 @@ def _get_kitti_360_projection(points):
         _x, _y, _z = x - x_min, y - y_min, z - z_min
         if i in [CLASSES["KITTI_360"]["ROAD"], CLASSES["KITTI_360"]["ZONE"]]:
             # The MAGIC NUMBER 3 makes the road and zone are better aligned with RGB images
-            _z -= 10
+            _z -= 7
 
         if tpd_hf[_y, _x] < _z:
             tpd_hf[_y, _x] = _z
@@ -1741,6 +1776,7 @@ def main(dataset, data_dir, osm_dir, is_debug):
                     CLASSES[dataset]["SKY"],
                 )
                 points = np.concatenate((points, sky_points), axis=0)
+
             # Generate the instance segmentation map as a side product
             scales = utils.helpers.get_point_scales(points[:, [3]], points[:, [4]])
             vp_map, ins_map = get_visible_points(
@@ -1782,6 +1818,7 @@ def main(dataset, data_dir, osm_dir, is_debug):
             #     )
             # scales = scales[vp_idx]
             # import extensions.diff_gaussian_rasterization as dgr
+
             # gr = dgr.GaussianRasterizerWrapper(
             #     np.array(_cam_rig["intrinsics"], dtype=np.float32).reshape((3, 3)),
             #     _cam_rig["sensor_size"],
