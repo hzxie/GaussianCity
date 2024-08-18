@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-31 16:18:39
+# @Last Modified at: 2024-08-18 14:45:53
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -92,13 +92,13 @@ SCALES = {
         "BLDG_ROOF": 6,
     },
     "GOOGLE_EARTH": {
-        "ROAD": 5,
+        "ROAD": 2,
         "BLDG_FACADE": 1,
         "BLDG_ROOF": 1,
         "GREEN_LANDS": 2,
         "CONSTRUCTION": 1,
-        "WATER": 25,
-        "ZONE": 5,
+        "WATER": 10,
+        "ZONE": 2,
     },
     "KITTI_360": {
         "ROAD": 10,
@@ -387,7 +387,7 @@ def _get_city_sample_water_areas(projection, scale):
     return projection
 
 
-@utils.helpers.static_vars(osm={})
+@utils.helpers.static_vars(osm={}, instances={})
 def _get_google_earth_projections(city_dir, osm_dir):
     city_name = "-".join(os.path.basename(city_dir).split("-")[:2])
     # Cache the full height field and semantic map
@@ -441,13 +441,23 @@ def _get_google_earth_projections(city_dir, osm_dir):
 
     # Reorganze the instance ID of buildings
     reorg_ins_map = ins_map[y_min:y_max, x_min:x_max].copy()
-    reorg_instances = np.unique(reorg_ins_map)
-    n_bldg = CONSTANTS["BLDG_INS_MIN_ID"]
-    for ri in reorg_instances:
+    max_bldg_inst = (
+        max(_get_google_earth_projections.instances.values())
+        if _get_google_earth_projections.instances
+        else CONSTANTS["BLDG_INS_MIN_ID"]
+    )
+    current_bldg_inst = max_bldg_inst
+    for ri in np.unique(reorg_ins_map):
         if ri < CONSTANTS["BLDG_INS_MIN_ID"]:
             continue
-        reorg_ins_map[reorg_ins_map == ri] = n_bldg
-        n_bldg += 2
+
+        if ri in _get_google_earth_projections.instances:
+            current_bldg_inst = _get_google_earth_projections.instances[ri]
+        else:
+            _get_google_earth_projections.instances[ri] = current_bldg_inst
+            current_bldg_inst += 2
+
+        reorg_ins_map[reorg_ins_map == ri] = current_bldg_inst
 
     metadata = osm_metadata.copy()
     metadata["target"] = {"x": cx, "y": cy, "z": cam_target["altitude"]}
@@ -1021,9 +1031,9 @@ def _get_city_sample_seg_map(ins_map):
     ins_map[ins_map >= CONSTANTS["CITY_SAMPLE"]["CAR_INS_MIN_ID"]] = CLASSES[
         "CITY_SAMPLE"
     ]["CAR"]
-    ins_map[
-        np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))
-    ] = CLASSES["CITY_SAMPLE"]["BLDG_ROOF"]
+    ins_map[np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))] = (
+        CLASSES["CITY_SAMPLE"]["BLDG_ROOF"]
+    )
     ins_map[ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]] = CLASSES["CITY_SAMPLE"][
         "BLDG_FACADE"
     ]
@@ -1155,16 +1165,20 @@ def get_seg_ins_relations(dataset):
         "BLDG_INS_MIN_ID": CONSTANTS["BLDG_INS_MIN_ID"],
         "ROOF_INS_OFFSET": CONSTANTS["ROOF_INS_OFFSET"],
         "BLDG_FACADE_SEMANTIC_ID": CLASSES[dataset]["BLDG_FACADE"],
-        "BLDG_ROOF_SEMANTIC_ID": CLASSES[dataset]["BLDG_ROOF"]
-        if "BLDG_ROOF" in CLASSES[dataset]
-        else CLASSES[dataset]["BLDG_FACADE"],
+        "BLDG_ROOF_SEMANTIC_ID": (
+            CLASSES[dataset]["BLDG_ROOF"]
+            if "BLDG_ROOF" in CLASSES[dataset]
+            else CLASSES[dataset]["BLDG_FACADE"]
+        ),
         # CAR (not used in Google-Earth)
-        "CAR_INS_MIN_ID": CONSTANTS[dataset]["CAR_INS_MIN_ID"]
-        if "CAR_INS_MIN_ID" in CONSTANTS[dataset]
-        else 32767,
-        "CAR_SEMANTIC_ID": CLASSES[dataset]["CAR"]
-        if "CAR" in CLASSES[dataset]
-        else 32767,
+        "CAR_INS_MIN_ID": (
+            CONSTANTS[dataset]["CAR_INS_MIN_ID"]
+            if "CAR_INS_MIN_ID" in CONSTANTS[dataset]
+            else 32767
+        ),
+        "CAR_SEMANTIC_ID": (
+            CLASSES[dataset]["CAR"] if "CAR" in CLASSES[dataset] else 32767
+        ),
     }
 
 
