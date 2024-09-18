@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:58:23
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-14 19:59:43
+# @Last Modified at: 2024-09-18 14:41:29
 # @Email:  root@haozhexie.com
 
 import logging
@@ -23,7 +23,7 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
     torch.backends.cudnn.benchmark = True
     if test_data_loader is None:
         test_data_loader = torch.utils.data.DataLoader(
-            dataset=utils.datasets.get_dataset(cfg, cfg.TEST.GAUSSIAN.DATASET, "test"),
+            dataset=utils.datasets.get_dataset(cfg, cfg.CONST.DATASET, "test"),
             batch_size=1,
             num_workers=cfg.CONST.N_WORKERS,
             collate_fn=utils.datasets.collate_fn,
@@ -33,7 +33,9 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
 
     if gaussian_g is None:
         gaussian_g = models.generator.Generator(
-            cfg, test_data_loader.dataset.get_n_classes()
+            cfg.NETWORK.GAUSSIAN,
+            test_data_loader.dataset.get_n_classes(),
+            test_data_loader.dataset.get_proj_size(),
         )
         if torch.cuda.is_available():
             gaussian_g = torch.nn.DataParallel(gaussian_g).cuda()
@@ -90,8 +92,9 @@ def test(cfg, test_data_loader=None, gaussian_g=None):
             )
             z = utils.helpers.get_z(instances, cfg.NETWORK.GAUSSIAN.Z_DIM)
             # Points positions at projection maps
-            proj_size = test_data_loader.dataset.get_proj_size()
-            proj_uv = utils.helpers.get_projection_uv(abs_xyz, proj_tlp, proj_size)
+            proj_uv = utils.helpers.get_projection_uv(
+                abs_xyz, proj_tlp, test_data_loader.dataset.get_proj_size()
+            )
 
             pt_rgbs = gaussian_g(
                 proj_uv, rel_xyz, bch_idx, onehots, z, proj_hf, proj_seg

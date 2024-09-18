@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:25:10
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-14 20:05:15
+# @Last Modified at: 2024-09-18 17:03:12
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -134,6 +134,9 @@ def get_one_hot(classes, n_class):
 
 
 def get_z(instances, z_dim):
+    if z_dim is None:
+        return None
+
     b, n, c = instances.size()
     assert b == 1 and c == 1, "Unexpected tensor shape (%d, %d, %d)" % (b, n, c)
 
@@ -185,8 +188,8 @@ def get_projection_uv(xyz, proj_tlp, proj_size):
         proj_uv = xyz[..., :2] - proj_tlp.unsqueeze(dim=1)
 
     assert proj_uv.size() == (xyz.size(0), n_pts, 2)
-    proj_uv[..., 0] /= proj_size[0]
-    proj_uv[..., 1] /= proj_size[1]
+    proj_uv[..., 0] /= proj_size
+    proj_uv[..., 1] /= proj_size
     # Normalize to [-1, 1]
     return proj_uv * 2 - 1
 

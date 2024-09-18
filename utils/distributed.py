@@ -21,6 +21,7 @@ pynvml.nvmlInit()
 
 class Device(object):
     r"""Device used for nvml."""
+
     _nvml_affinity_elements = math.ceil(os.cpu_count() / 64)
 
     def __init__(self, device_idx):

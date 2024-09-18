@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-15 22:05:59
+# @Last Modified at: 2024-09-18 17:10:24
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -33,7 +33,7 @@ cfg.DATASETS.GOOGLE_EARTH.CAM_K                   = [1528.1469407006614, 0, 480,
 cfg.DATASETS.GOOGLE_EARTH.SENSOR_SIZE             = (960, 540)
 cfg.DATASETS.GOOGLE_EARTH.FLIP_UD                 = False
 cfg.DATASETS.GOOGLE_EARTH.N_CLASSES               = 8
-cfg.DATASETS.GOOGLE_EARTH.PROJ_SIZE               = (2048, 2048)
+cfg.DATASETS.GOOGLE_EARTH.PROJ_SIZE               = 2048
 cfg.DATASETS.GOOGLE_EARTH.BLDG_RANGE              = [100, 32768]
 cfg.DATASETS.GOOGLE_EARTH.BLDG_FACADE_CLSID       = 2
 cfg.DATASETS.GOOGLE_EARTH.BLDG_ROOF_CLSID         = 7
@@ -55,7 +55,7 @@ cfg.DATASETS.KITTI_360.CAM_K                      = [552.554261, 0, 682.049453, 
 cfg.DATASETS.KITTI_360.SENSOR_SIZE                = (1408, 376)
 cfg.DATASETS.KITTI_360.FLIP_UD                    = True
 cfg.DATASETS.KITTI_360.N_CLASSES                  = 8
-cfg.DATASETS.KITTI_360.PROJ_SIZE                  = (2048, 2048)
+cfg.DATASETS.KITTI_360.PROJ_SIZE                  = 2048
 cfg.DATASETS.KITTI_360.BLDG_RANGE                 = [100, 10000]
 cfg.DATASETS.KITTI_360.BLDG_FACADE_CLSID          = 2
 cfg.DATASETS.KITTI_360.BLDG_ROOF_CLSID            = 7
@@ -64,33 +64,6 @@ cfg.DATASETS.KITTI_360.CAR_CLSID                  = 3
 cfg.DATASETS.KITTI_360.Z_SCALE_SPECIAL_CLASSES    = {"ROAD": 1, "ZONE": 6}
 cfg.DATASETS.KITTI_360.MAP_SIZE                   = 0
 cfg.DATASETS.KITTI_360.SCALE                      = 1
-# The CitySample Dataset Config
-cfg.DATASETS.CITY_SAMPLE                          = EasyDict()
-cfg.DATASETS.CITY_SAMPLE.DIR                      = "./data/city-sample"
-cfg.DATASETS.CITY_SAMPLE.PIN_MEMORY               = ["Rt", "centers"]
-cfg.DATASETS.CITY_SAMPLE.N_REPEAT                 = 1            # 1
-cfg.DATASETS.CITY_SAMPLE.N_CITIES                 = 10           # 10
-cfg.DATASETS.CITY_SAMPLE.N_VIEWS                  = 3000         # 3000
-cfg.DATASETS.CITY_SAMPLE.CITY_STYLES              = ["Day"]      # ["Day", "Night"]
-cfg.DATASETS.CITY_SAMPLE.TRAIN_CROP_SIZE          = (448, 448)
-cfg.DATASETS.CITY_SAMPLE.TRAIN_MIN_PIXELS         = 64
-cfg.DATASETS.CITY_SAMPLE.TRAIN_MAX_POINTS         = 16384
-cfg.DATASETS.CITY_SAMPLE.TEST_CROP_SIZE           = (960, 540)
-## The following parameters should be the same as scripts/dataset_generator.py
-cfg.DATASETS.CITY_SAMPLE.CAM_K                    = [2828.2831640142235, 0, 960, 0, 2828.2831640142235, 540, 0, 0, 1]
-cfg.DATASETS.CITY_SAMPLE.SENSOR_SIZE              = (1920, 1080)
-cfg.DATASETS.CITY_SAMPLE.FLIP_UD                  = False
-cfg.DATASETS.CITY_SAMPLE.N_CLASSES                = 9
-cfg.DATASETS.CITY_SAMPLE.PROJ_SIZE                = (2048, 2048)
-cfg.DATASETS.CITY_SAMPLE.BLDG_RANGE               = [100, 5000]
-cfg.DATASETS.CITY_SAMPLE.BLDG_FACADE_CLSID        = 7
-cfg.DATASETS.CITY_SAMPLE.BLDG_ROOF_CLSID          = 8
-cfg.DATASETS.CITY_SAMPLE.CAR_RANGE                = [5000, 16384]
-cfg.DATASETS.CITY_SAMPLE.CAR_CLSID                = 3
-cfg.DATASETS.CITY_SAMPLE.Z_SCALE_SPECIAL_CLASSES  = {"ROAD": 1, "WATER": 4, "ZONE": 6}
-cfg.DATASETS.CITY_SAMPLE.MAP_SIZE                 = 24576
-cfg.DATASETS.CITY_SAMPLE.SCALE                    = 20
-cfg.DATASETS.CITY_SAMPLE.BLDG_SCALE_FACTOR        = 0.75
 
 #
 # Constants
@@ -98,6 +71,7 @@ cfg.DATASETS.CITY_SAMPLE.BLDG_SCALE_FACTOR        = 0.75
 cfg.CONST                                         = EasyDict()
 cfg.CONST.EXP_NAME                                = ""
 cfg.CONST.N_WORKERS                               = 8
+cfg.CONST.DATASET                                 = "GOOGLE_EARTH"
 
 #
 # Directories
@@ -133,14 +107,18 @@ cfg.NETWORK                                       = EasyDict()
 # Gaussian
 cfg.NETWORK.GAUSSIAN                              = EasyDict()
 cfg.NETWORK.GAUSSIAN.SCALE_FACTOR                 = 0.75
-cfg.NETWORK.GAUSSIAN.REPEAT_PTS                   = 4
-cfg.NETWORK.GAUSSIAN.PROJ_ENCODER_OUT_DIM         = 64
-cfg.NETWORK.GAUSSIAN.N_FREQ_BANDS                 = 10
-cfg.NETWORK.GAUSSIAN.Z_DIM                        = 256
+cfg.NETWORK.GAUSSIAN.ENCODER                     = "GLOBAL"     # Options: "GLOBAL", "LOCAL"
+cfg.NETWORK.GAUSSIAN.ENCODER_OUT_DIM             = 5            # Options: 5, 64
+cfg.NETWORK.GAUSSIAN.GLOBAL_ENCODER_N_BLOCKS     = 6
+cfg.NETWORK.GAUSSIAN.POS_EMD                     = "HASH_GRID"  # Options: "HASH_GRID", "SIN_COS"
+cfg.NETWORK.GAUSSIAN.HASH_GRID_N_LEVELS          = 16
+cfg.NETWORK.GAUSSIAN.HASH_GRID_LEVEL_DIM         = 8
+cfg.NETWORK.GAUSSIAN.SIN_COS_FREQ_BENDS          = 10
+cfg.NETWORK.GAUSSIAN.Z_DIM                        = None        # Options: None, 256
 cfg.NETWORK.GAUSSIAN.MLP_HIDDEN_DIM               = 512
 cfg.NETWORK.GAUSSIAN.MLP_N_SHARED_LAYERS          = 1
-cfg.NETWORK.GAUSSIAN.ATTR_FACTORS                 = {"rgb": 2} # "xyz": 40, "opacity": 1
-cfg.NETWORK.GAUSSIAN.ATTR_N_LAYERS                = {"rgb": 1} # "xyz": 1, "opacity": 1
+cfg.NETWORK.GAUSSIAN.ATTR_FACTORS                 = {"rgb": 2}
+cfg.NETWORK.GAUSSIAN.ATTR_N_LAYERS                = {"rgb": 1}
 cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE           = 128
 cfg.NETWORK.GAUSSIAN.PTV3                         = EasyDict()
 cfg.NETWORK.GAUSSIAN.PTV3.ORDER                   = ("cord")
@@ -160,7 +138,6 @@ cfg.NETWORK.GAUSSIAN.PTV3.ENABLE_FLASH_ATTN       = False
 #
 cfg.TRAIN                                         = EasyDict()
 cfg.TRAIN.GAUSSIAN                                = EasyDict()
-cfg.TRAIN.GAUSSIAN.DATASET                        = "GOOGLE_EARTH"
 cfg.TRAIN.GAUSSIAN.BATCH_SIZE                     = 1
 cfg.TRAIN.GAUSSIAN.EPS                            = 1e-8
 cfg.TRAIN.GAUSSIAN.WEIGHT_DECAY                   = 0
@@ -187,6 +164,5 @@ cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.N_WARMUP_ITERS   = 100000
 #
 cfg.TEST                                          = EasyDict()
 cfg.TEST.GAUSSIAN                                 = EasyDict()
-cfg.TEST.GAUSSIAN.DATASET                         = "GOOGLE_EARTH"
 cfg.TEST.GAUSSIAN.TEST_FREQ                       = 1
 # fmt: on

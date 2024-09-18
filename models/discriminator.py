@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:37:00
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-13 09:41:41
+# @Last Modified at: 2024-09-18 12:38:13
 # @Email:  root@haozhexie.com
 
 import torch
@@ -22,7 +22,7 @@ class Discriminator(torch.nn.Module):
             torch.nn.utils.spectral_norm(
                 torch.nn.Conv2d(
                     3,  # RGB
-                    cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
+                    cfg.DIS_N_CHANNEL_BASE,
                     stride=2,
                     kernel_size=3,
                     padding=1,
@@ -35,8 +35,8 @@ class Discriminator(torch.nn.Module):
         self.enc2 = torch.nn.Sequential(
             torch.nn.utils.spectral_norm(
                 torch.nn.Conv2d(
-                    1 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
-                    2 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
+                    1 * cfg.DIS_N_CHANNEL_BASE,
+                    2 * cfg.DIS_N_CHANNEL_BASE,
                     stride=2,
                     kernel_size=3,
                     padding=1,
@@ -49,8 +49,8 @@ class Discriminator(torch.nn.Module):
         self.enc3 = torch.nn.Sequential(
             torch.nn.utils.spectral_norm(
                 torch.nn.Conv2d(
-                    2 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
-                    4 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
+                    2 * cfg.DIS_N_CHANNEL_BASE,
+                    4 * cfg.DIS_N_CHANNEL_BASE,
                     stride=2,
                     kernel_size=3,
                     padding=1,
@@ -63,8 +63,8 @@ class Discriminator(torch.nn.Module):
         self.enc4 = torch.nn.Sequential(
             torch.nn.utils.spectral_norm(
                 torch.nn.Conv2d(
-                    4 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
-                    8 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
+                    4 * cfg.DIS_N_CHANNEL_BASE,
+                    8 * cfg.DIS_N_CHANNEL_BASE,
                     stride=2,
                     kernel_size=3,
                     padding=1,
@@ -77,8 +77,8 @@ class Discriminator(torch.nn.Module):
         self.enc5 = torch.nn.Sequential(
             torch.nn.utils.spectral_norm(
                 torch.nn.Conv2d(
-                    8 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
-                    8 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
+                    8 * cfg.DIS_N_CHANNEL_BASE,
+                    8 * cfg.DIS_N_CHANNEL_BASE,
                     stride=2,
                     kernel_size=3,
                     padding=1,
@@ -93,8 +93,8 @@ class Discriminator(torch.nn.Module):
         self.lat2 = torch.nn.Sequential(
             torch.nn.utils.spectral_norm(
                 torch.nn.Conv2d(
-                    2 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
-                    4 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
+                    2 * cfg.DIS_N_CHANNEL_BASE,
+                    4 * cfg.DIS_N_CHANNEL_BASE,
                     stride=1,
                     kernel_size=1,
                     bias=True,
@@ -106,8 +106,8 @@ class Discriminator(torch.nn.Module):
         self.lat3 = torch.nn.Sequential(
             torch.nn.utils.spectral_norm(
                 torch.nn.Conv2d(
-                    4 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
-                    4 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
+                    4 * cfg.DIS_N_CHANNEL_BASE,
+                    4 * cfg.DIS_N_CHANNEL_BASE,
                     stride=1,
                     kernel_size=1,
                     bias=True,
@@ -119,8 +119,8 @@ class Discriminator(torch.nn.Module):
         self.lat4 = torch.nn.Sequential(
             torch.nn.utils.spectral_norm(
                 torch.nn.Conv2d(
-                    8 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
-                    4 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
+                    8 * cfg.DIS_N_CHANNEL_BASE,
+                    4 * cfg.DIS_N_CHANNEL_BASE,
                     stride=1,
                     kernel_size=1,
                     bias=True,
@@ -132,8 +132,8 @@ class Discriminator(torch.nn.Module):
         self.lat5 = torch.nn.Sequential(
             torch.nn.utils.spectral_norm(
                 torch.nn.Conv2d(
-                    8 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
-                    4 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
+                    8 * cfg.DIS_N_CHANNEL_BASE,
+                    4 * cfg.DIS_N_CHANNEL_BASE,
                     stride=1,
                     kernel_size=1,
                     bias=True,
@@ -151,8 +151,8 @@ class Discriminator(torch.nn.Module):
         self.final2 = torch.nn.Sequential(
             torch.nn.utils.spectral_norm(
                 torch.nn.Conv2d(
-                    4 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
-                    2 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
+                    4 * cfg.DIS_N_CHANNEL_BASE,
+                    2 * cfg.DIS_N_CHANNEL_BASE,
                     stride=1,
                     kernel_size=3,
                     padding=1,
@@ -164,7 +164,7 @@ class Discriminator(torch.nn.Module):
         # self.output = Conv2dBlock(num_filters * 2, num_labels + 1, kernel_size=1)
         self.output = torch.nn.Sequential(
             torch.nn.Conv2d(
-                2 * cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE,
+                2 * cfg.DIS_N_CHANNEL_BASE,
                 n_classes + 1,
                 stride=1,
                 kernel_size=1,

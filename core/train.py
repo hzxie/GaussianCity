@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-02-28 15:57:40
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-31 16:51:51
+# @Last Modified at: 2024-09-18 14:41:16
 # @Email:  root@haozhexie.com
 
 import logging
@@ -31,8 +31,8 @@ def train(cfg):
     torch.backends.cudnn.benchmark = True
     local_rank = utils.distributed.get_rank()
     # Set up data loader
-    train_dataset = utils.datasets.get_dataset(cfg, cfg.TRAIN.GAUSSIAN.DATASET, "train")
-    val_dataset = utils.datasets.get_dataset(cfg, cfg.TEST.GAUSSIAN.DATASET, "val")
+    train_dataset = utils.datasets.get_dataset(cfg, cfg.CONST.DATASET, "train")
+    val_dataset = utils.datasets.get_dataset(cfg, cfg.CONST.DATASET, "val")
     train_sampler = None
     val_sampler = None
     if torch.cuda.is_available():
@@ -64,10 +64,14 @@ def train(cfg):
     )
 
     # Set up networks
-    gaussian_g = models.generator.Generator(cfg, train_dataset.get_n_classes())
+    gaussian_g = models.generator.Generator(
+        cfg.NETWORK.GAUSSIAN,
+        train_dataset.get_n_classes(),
+        train_dataset.get_proj_size(),
+    )
     if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:
         gaussian_d = models.discriminator.Discriminator(
-            cfg, train_dataset.get_n_classes()
+            cfg.NETWORK.GAUSSIAN, train_dataset.get_n_classes()
         )
     if torch.cuda.is_available():
         logging.info("Start running the DDP on rank %d." % local_rank)
@@ -215,8 +219,9 @@ def train(cfg):
             onehots = utils.helpers.get_one_hot(classes, train_dataset.get_n_classes())
             z = utils.helpers.get_z(instances, cfg.NETWORK.GAUSSIAN.Z_DIM)
             # Points positions at projection maps
-            proj_size = train_dataset.get_proj_size()
-            proj_uv = utils.helpers.get_projection_uv(abs_xyz, proj_tlp, proj_size)
+            proj_uv = utils.helpers.get_projection_uv(
+                abs_xyz, proj_tlp, train_dataset.get_proj_size()
+            )
 
             # Discriminator Update Step
             if cfg.TRAIN.GAUSSIAN.DISCRIMINATOR.ENABLED:

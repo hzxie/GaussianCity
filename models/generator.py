@@ -4,70 +4,131 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:36:52
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-04 08:06:33
+# @Last Modified at: 2024-09-18 17:08:43
 # @Email:  root@haozhexie.com
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
+import extensions.grid_encoder
 import models.pt_v3
 
 
 class Generator(torch.nn.Module):
-    def __init__(self, cfg, n_classes):
+    def __init__(self, cfg, n_classes, proj_size):
         super(Generator, self).__init__()
         self.cfg = cfg
         self.n_classes = n_classes
-        self.encoder = ProjectionEncoder(
-            n_classes, cfg.NETWORK.GAUSSIAN.PROJ_ENCODER_OUT_DIM - 3
-        )
-        self.pos_encoder = SinCosEncoder(cfg.NETWORK.GAUSSIAN.N_FREQ_BANDS)
+        if cfg.ENCODER == "GLOBAL":
+            self.proj_encoder = GlobalEncoder(
+                n_classes, cfg.GLOBAL_ENCODER_N_BLOCKS, cfg.ENCODER_OUT_DIM - 3
+            )
+        elif cfg.ENCODER == "LOCAL":
+            self.proj_encoder = LocalEncoder(n_classes, cfg.ENCODER_OUT_DIM - 3)
+        else:
+            raise ValueError("Unknown encoder: %s" % cfg.ENCODER)
+
+        if cfg.POS_EMD == "HASH_GRID":
+            pt_feat_dim = cfg.HASH_GRID_N_LEVELS * cfg.HASH_GRID_LEVEL_DIM
+            self.pos_encoder = extensions.grid_encoder.GridEncoder(
+                in_channels=cfg.ENCODER_OUT_DIM,
+                desired_resolution=proj_size,
+                n_levels=cfg.HASH_GRID_N_LEVELS,
+                lvl_channels=cfg.HASH_GRID_LEVEL_DIM,
+            )
+        elif cfg.POS_EMD == "SIN_COS":
+            pt_feat_dim = 2 * cfg.ENCODER_OUT_DIM * cfg.SIN_COS_FREQ_BENDS
+            self.pos_encoder = SinCosEncoder(cfg.SIN_COS_FREQ_BENDS)
+        else:
+            raise ValueError("Unknown positional encoder: %s" % cfg.POS_EMD)
+
         self.pt_net = models.pt_v3.PointTransformerV3(
-            in_channels=2
-            * cfg.NETWORK.GAUSSIAN.PROJ_ENCODER_OUT_DIM
-            * cfg.NETWORK.GAUSSIAN.N_FREQ_BANDS,
-            order=cfg.NETWORK.GAUSSIAN.PTV3.ORDER,
-            stride=cfg.NETWORK.GAUSSIAN.PTV3.STRIDE,
-            enc_depths=cfg.NETWORK.GAUSSIAN.PTV3.ENC_DEPTHS,
-            enc_channels=cfg.NETWORK.GAUSSIAN.PTV3.ENC_CHANNELS,
-            enc_num_head=cfg.NETWORK.GAUSSIAN.PTV3.ENC_N_HEAD,
-            enc_patch_size=cfg.NETWORK.GAUSSIAN.PTV3.ENC_PATCH_SIZE,
-            dec_depths=cfg.NETWORK.GAUSSIAN.PTV3.DEC_DEPTHS,
-            dec_channels=cfg.NETWORK.GAUSSIAN.PTV3.DEC_CHANNELS,
-            dec_num_head=cfg.NETWORK.GAUSSIAN.PTV3.DEC_N_HEAD,
-            dec_patch_size=cfg.NETWORK.GAUSSIAN.PTV3.DEC_PATCH_SIZE,
-            enable_flash=cfg.NETWORK.GAUSSIAN.PTV3.ENABLE_FLASH_ATTN,
+            in_channels=pt_feat_dim,
+            order=cfg.PTV3.ORDER,
+            stride=cfg.PTV3.STRIDE,
+            enc_depths=cfg.PTV3.ENC_DEPTHS,
+            enc_channels=cfg.PTV3.ENC_CHANNELS,
+            enc_num_head=cfg.PTV3.ENC_N_HEAD,
+            enc_patch_size=cfg.PTV3.ENC_PATCH_SIZE,
+            dec_depths=cfg.PTV3.DEC_DEPTHS,
+            dec_channels=cfg.PTV3.DEC_CHANNELS,
+            dec_num_head=cfg.PTV3.DEC_N_HEAD,
+            dec_patch_size=cfg.PTV3.DEC_PATCH_SIZE,
+            enable_flash=cfg.PTV3.ENABLE_FLASH_ATTN,
         )
         self.ga_mlp = GaussianAttrMLP(
             n_classes,
-            2
-            * cfg.NETWORK.GAUSSIAN.PROJ_ENCODER_OUT_DIM
-            * cfg.NETWORK.GAUSSIAN.N_FREQ_BANDS
-            + cfg.NETWORK.GAUSSIAN.PTV3.DEC_CHANNELS[0],
-            cfg.NETWORK.GAUSSIAN.Z_DIM,
-            cfg.NETWORK.GAUSSIAN.MLP_HIDDEN_DIM,
-            cfg.NETWORK.GAUSSIAN.MLP_N_SHARED_LAYERS,
-            cfg.NETWORK.GAUSSIAN.ATTR_FACTORS,
-            cfg.NETWORK.GAUSSIAN.ATTR_N_LAYERS,
+            pt_feat_dim + cfg.PTV3.DEC_CHANNELS[0],
+            cfg.Z_DIM,
+            cfg.MLP_HIDDEN_DIM,
+            cfg.MLP_N_SHARED_LAYERS,
+            cfg.ATTR_FACTORS,
+            cfg.ATTR_N_LAYERS,
         )
 
     def forward(self, proj_uv, rel_xyz, batch_idx, onehots, z, proj_hf, proj_seg):
-        proj_feat = self.encoder(proj_hf, proj_seg)
-        pt_feat = (
-            F.grid_sample(proj_feat, proj_uv.unsqueeze(dim=1), align_corners=True)
-            .squeeze(dim=2)
-            .permute(0, 2, 1)
-        )
+        proj_feat = self.proj_encoder(proj_hf, proj_seg)
+        # Ref: https://github.com/hzxie/CityDreamer/blob/master/models/gancraft.py#L381
+        if self.cfg.ENCODER == "GLOBAL":
+            pt_feat = proj_feat.unsqueeze(dim=1).repeat(1, proj_uv.size(1), 1)
+        elif self.cfg.ENCODER == "LOCAL":
+            pt_feat = (
+                F.grid_sample(proj_feat, proj_uv.unsqueeze(dim=1), align_corners=True)
+                .squeeze(dim=2)
+                .permute(0, 2, 1)
+            )
+        # print(pt_feat.size())  # torch.Size([B, n_pts, cfg.ENCODER_OUT_DIM - 3])
         pt_feat = torch.cat([pt_feat, rel_xyz], dim=2)
+        # print(pt_feat.size())  # torch.Size([B, n_pts, cfg.ENCODER_OUT_DIM])
         pt_feat1 = self.pos_encoder(pt_feat)
+        # print(pt_feat1.size())  # torch.Size([B, n_pts, pt_feat_dim])
         pt_feat2 = self.pt_net(batch_idx, pt_feat1, rel_xyz)
+        # print(pt_feat2.size())  # torch.Size([B, n_pts, pt_feat_dim + cfg.PTV3.DEC_CHANNELS[0]])
         return self.ga_mlp(torch.cat([pt_feat1, pt_feat2], dim=-1), onehots, z)
 
 
-class ProjectionEncoder(torch.nn.Module):
+class GlobalEncoder(torch.nn.Module):
+    def __init__(self, n_classes, n_blocks, out_channels):
+        super(GlobalEncoder, self).__init__()
+        self.hf_conv = torch.nn.Conv2d(1, 8, kernel_size=3, stride=2, padding=1)
+        self.seg_conv = torch.nn.Conv2d(
+            n_classes,
+            8,
+            kernel_size=3,
+            stride=2,
+            padding=1,
+        )
+        conv_blocks = []
+        cur_hidden_channels = 16
+        for _ in range(1, n_blocks):
+            conv_blocks.append(
+                SRTConvBlock(in_channels=cur_hidden_channels, out_channels=None)
+            )
+            cur_hidden_channels *= 2
+
+        self.conv_blocks = torch.nn.Sequential(*conv_blocks)
+        self.fc1 = torch.nn.Linear(cur_hidden_channels, 16)
+        self.fc2 = torch.nn.Linear(16, out_channels)
+        self.act = torch.nn.LeakyReLU(0.2)
+
+    def forward(self, proj_hf, proj_seg):
+        hf = self.act(self.hf_conv(proj_hf))
+        seg = self.act(self.seg_conv(proj_seg))
+        out = torch.cat([hf, seg], dim=1)
+        for layer in self.conv_blocks:
+            out = self.act(layer(out))
+
+        out = out.permute(0, 2, 3, 1)
+        out = torch.mean(out.reshape(out.shape[0], -1, out.shape[-1]), dim=1)
+        cond = self.act(self.fc1(out))
+        cond = torch.tanh(self.fc2(cond))
+        return cond
+
+
+class LocalEncoder(torch.nn.Module):
     def __init__(self, n_classes, out_channels):
-        super(ProjectionEncoder, self).__init__()
+        super(LocalEncoder, self).__init__()
         self.hf_conv = torch.nn.Conv2d(1, 32, kernel_size=7, stride=2, padding=3)
         self.seg_conv = torch.nn.Conv2d(
             n_classes, 32, kernel_size=7, stride=2, padding=3
@@ -102,6 +163,39 @@ class ProjectionEncoder(torch.nn.Module):
         out = self.dconv7(out)
         # print(out.size())   # torch.Size([N, OUT_DIM - 1, H, W])
         return torch.tanh(out)
+
+
+class SRTConvBlock(torch.nn.Module):
+    def __init__(self, in_channels, hidden_channels=None, out_channels=None):
+        super(SRTConvBlock, self).__init__()
+        if hidden_channels is None:
+            hidden_channels = in_channels
+        if out_channels is None:
+            out_channels = 2 * hidden_channels
+
+        self.layers = torch.nn.Sequential(
+            torch.nn.Conv2d(
+                in_channels,
+                hidden_channels,
+                stride=1,
+                kernel_size=3,
+                padding=1,
+                bias=False,
+            ),
+            torch.nn.ReLU(),
+            torch.nn.Conv2d(
+                hidden_channels,
+                out_channels,
+                stride=2,
+                kernel_size=3,
+                padding=1,
+                bias=False,
+            ),
+            torch.nn.ReLU(),
+        )
+
+    def forward(self, x):
+        return self.layers(x)
 
 
 class ResConvBlock(torch.nn.Module):
@@ -224,13 +318,17 @@ class GaussianAttrMLP(torch.nn.Module):
             setattr(
                 self,
                 "fc_%d" % i,
-                ModLinear(
-                    hidden_dim,
-                    hidden_dim,
-                    z_dim,
-                    bias=False,
-                    mod_bias=True,
-                    output_mode=True,
+                (
+                    ModLinear(
+                        hidden_dim,
+                        hidden_dim,
+                        z_dim,
+                        bias=False,
+                        mod_bias=True,
+                        output_mode=True,
+                    )
+                    if z_dim is not None
+                    else torch.nn.Linear(hidden_dim, hidden_dim)
                 ),
             )
         for k in factors.keys():
@@ -239,13 +337,17 @@ class GaussianAttrMLP(torch.nn.Module):
                 setattr(
                     self,
                     "fc_%d_%s_%d" % (n_shared_layers + 1, k, i),
-                    ModLinear(
-                        hidden_dim,
-                        hidden_dim,
-                        z_dim,
-                        bias=False,
-                        mod_bias=True,
-                        output_mode=True,
+                    (
+                        ModLinear(
+                            hidden_dim,
+                            hidden_dim,
+                            z_dim,
+                            bias=False,
+                            mod_bias=True,
+                            output_mode=True,
+                        )
+                        if z_dim is not None
+                        else torch.nn.Linear(hidden_dim, hidden_dim)
                     ),
                 )
             setattr(
@@ -263,30 +365,33 @@ class GaussianAttrMLP(torch.nn.Module):
         f = self.fc_1(pt_feat)
         f = f + self.fc_m_a(onehots)
         f = self.act(f)
-        output = {
-            k: torch.zeros(b, n, 1 if k == "opacity" else 3, device=pt_feat.device)
-            for k in self.factors.keys()
-        }
-        for v in zs.values():
-            z = v["z"]
-            idx = v["idx"]
-            _output = self._instance_forward(f[idx].unsqueeze(dim=0), z)
-            for k, v in _output.items():
-                output[k][idx] = v
+        if zs is None:
+            output = self._instance_forward(f)
+        else:
+            output = {
+                k: torch.zeros(b, n, 1 if k == "opacity" else 3, device=pt_feat.device)
+                for k in self.factors.keys()
+            }
+            for v in zs.values():
+                z = v["z"]
+                idx = v["idx"]
+                _output = self._instance_forward(f[idx].unsqueeze(dim=0), z)
+                for k, v in _output.items():
+                    output[k][idx] = v
 
         return output
 
-    def _instance_forward(self, f, z):
+    def _instance_forward(self, f, z=None):
         for i in range(2, self.n_shared_layers + 1):
             fc = getattr(self, "fc_%d" % i)
-            f = self.act(fc(f, z))
+            f = self.act(fc(f, z) if z is not None else fc(f))
 
         output = {}
         for k in self.factors.keys():
             _f = f.clone()
             for i in range(self.n_layers[k]):
                 _fc = getattr(self, "fc_%d_%s_%d" % (self.n_shared_layers + 1, k, i))
-                _f = self.act(_fc(_f, z))
+                _f = self.act(_fc(_f, z) if z is not None else _fc(f))
 
             fc_out = getattr(self, "fc_out_%s" % k)
             output[k] = fc_out(_f)

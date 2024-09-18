@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 21:27:22
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-02-28 15:58:18
+# @Last Modified at: 2024-09-18 14:46:53
 # @Email:  root@haozhexie.com
 
 
@@ -45,10 +45,10 @@ def get_args_from_command_line():
         type=str,
     )
     parser.add_argument(
-        "-n",
-        "--network",
-        dest="network",
-        help="The network name to train or test. ['VQGAN', 'Sampler', 'GANCraft']",
+        "-d",
+        "--dataset",
+        dest="dataset",
+        help="The dataset name to train or test.",
         default=None,
         type=str,
     )
@@ -101,8 +101,8 @@ def main():
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
     if args.exp_name is not None:
         cfg.CONST.EXP_NAME = args.exp_name
-    if args.network is not None:
-        cfg.CONST.NETWORK = args.network
+    if args.dataset is not None:
+        cfg.CONST.DATASET = args.dataset
     if args.ckpt is not None:
         cfg.CONST.CKPT = args.ckpt
     if args.run_id is not None:
