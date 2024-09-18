@@ -279,7 +279,7 @@ class GoogleDataset(Dataset):
         return classes
 
     def _get_renderings(self, cfg, split):
-        cities = sorted(os.listdir(cfg.DIR))[: cfg.N_CITIES][:50]
+        cities = sorted(os.listdir(cfg.DIR))[: cfg.N_CITIES]
         files = [
             {
                 "name": "%s/%02d" % (c, i),
