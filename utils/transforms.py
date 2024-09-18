@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 14:18:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-04-11 20:51:46
+# @Last Modified at: 2024-09-18 22:08:13
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -153,6 +153,7 @@ class RandomInstance(object):
             visible_ins = visible_ins[visible_ins < self.range[1]]
 
         if len(visible_ins) == 0:
+            data["msk"] = np.zeros_like(data["msk"])
             return data
 
         ins = (
