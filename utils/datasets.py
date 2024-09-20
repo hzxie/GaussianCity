@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-09-18 16:48:08
+# @Last Modified at: 2024-09-20 13:30:55
 # @Email:  root@haozhexie.com
 
 import copy
@@ -156,14 +156,14 @@ class Dataset(torch.utils.data.Dataset):
                         },
                         "objects": ["rgb", "seg", "ins", "vpm", "msk"],
                     },
-                    # {
-                    #     "callback": "RandomInstance",
-                    #     "parameters": {
-                    #         "n_instances": 0,
-                    #         "range": [0, 10]
-                    #     },
-                    #     "objects": ["ins", "vpm", "msk"],
-                    # },
+                    {
+                        "callback": "RandomInstance",
+                        "parameters": {
+                            "n_instances": cfg.TRAIN_N_INSTANCES,
+                            "range": cfg.TRAIN_INSTANCE_RANGE,
+                        },
+                        "objects": ["ins", "vpm", "msk"],
+                    },
                     {
                         "callback": "RemoveUnseenPoints",
                         "parameters": None,
@@ -209,14 +209,14 @@ class Dataset(torch.utils.data.Dataset):
                         },
                         "objects": ["rgb", "seg", "ins", "vpm", "msk"],
                     },
-                    # {
-                    #     "callback": "RandomInstance",
-                    #     "parameters": {
-                    #         "n_instances": 0
-                    #         "range": [0, 10]
-                    #     },
-                    #     "objects": ["ins", "vpm", "msk"],
-                    # },
+                    {
+                        "callback": "RandomInstance",
+                        "parameters": {
+                            "n_instances": cfg.TEST_N_INSTANCES,
+                            "range": cfg.TEST_INSTANCE_RANGE,
+                        },
+                        "objects": ["ins", "vpm", "msk"],
+                    },
                     {
                         "callback": "RemoveUnseenPoints",
                         "parameters": None,

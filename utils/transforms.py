@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 14:18:01
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-09-18 22:08:13
+# @Last Modified at: 2024-09-20 13:28:51
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -146,6 +146,10 @@ class RandomInstance(object):
         self.objects = objects
 
     def __call__(self, data):
+        # None indicates skip this transformation
+        if self.n_instances is None:
+            return data
+
         ins_map = data["ins"] * data["msk"]
         visible_ins = np.unique(ins_map[ins_map > 0])
         if self.range is not None:

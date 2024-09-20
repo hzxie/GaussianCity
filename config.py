@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-09-18 17:10:24
+# @Last Modified at: 2024-09-20 13:32:08
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -21,10 +21,14 @@ cfg.DATASETS                                      = EasyDict()
 cfg.DATASETS.GOOGLE_EARTH                         = EasyDict()
 cfg.DATASETS.GOOGLE_EARTH.DIR                     = "./data/google-earth"
 cfg.DATASETS.GOOGLE_EARTH.PIN_MEMORY              = ["Rt", "centers"]
-cfg.DATASETS.GOOGLE_EARTH.N_REPEAT                = 1            # 1
-cfg.DATASETS.GOOGLE_EARTH.N_CITIES                = 400          # 400
-cfg.DATASETS.GOOGLE_EARTH.N_VIEWS                 = 60           # 60
+cfg.DATASETS.GOOGLE_EARTH.N_REPEAT                = 1
+cfg.DATASETS.GOOGLE_EARTH.N_CITIES                = 400
+cfg.DATASETS.GOOGLE_EARTH.N_VIEWS                 = 60
+cfg.DATASETS.GOOGLE_EARTH.TRAIN_N_INSTANCES       = None
+cfg.DATASETS.GOOGLE_EARTH.TRAIN_INSTANCE_RANGE    = None
 cfg.DATASETS.GOOGLE_EARTH.TRAIN_CROP_SIZE         = (448, 448)
+cfg.DATASETS.GOOGLE_EARTH.TEST_N_INSTANCES        = None
+cfg.DATASETS.GOOGLE_EARTH.TEST_INSTANCE_RANGE     = None
 cfg.DATASETS.GOOGLE_EARTH.TEST_CROP_SIZE          = (720, 405)
 cfg.DATASETS.GOOGLE_EARTH.TRAIN_MIN_PIXELS        = 64
 cfg.DATASETS.GOOGLE_EARTH.TRAIN_MAX_POINTS        = 16384
@@ -46,7 +50,11 @@ cfg.DATASETS.KITTI_360.DIR                        = "./data/kitti-360/processed"
 cfg.DATASETS.KITTI_360.PIN_MEMORY                 = ["Rt", "centers"]
 cfg.DATASETS.KITTI_360.N_REPEAT                   = 1
 cfg.DATASETS.KITTI_360.VIEW_INDEX_FILE            = "./data/kitti-360/views.json"
+cfg.DATASETS.KITTI_360.TRAIN_N_INSTANCES          = None
+cfg.DATASETS.KITTI_360.TRAIN_INSTANCE_RANGE       = None
 cfg.DATASETS.KITTI_360.TRAIN_CROP_SIZE            = (448, 224)
+cfg.DATASETS.KITTI_360.TEST_N_INSTANCES           = None
+cfg.DATASETS.KITTI_360.TEST_INSTANCE_RANGE        = None
 cfg.DATASETS.KITTI_360.TEST_CROP_SIZE             = (704, 376)
 cfg.DATASETS.KITTI_360.TRAIN_MIN_PIXELS           = 64
 cfg.DATASETS.KITTI_360.TRAIN_MAX_POINTS           = 16384
@@ -107,14 +115,14 @@ cfg.NETWORK                                       = EasyDict()
 # Gaussian
 cfg.NETWORK.GAUSSIAN                              = EasyDict()
 cfg.NETWORK.GAUSSIAN.SCALE_FACTOR                 = 0.65
-cfg.NETWORK.GAUSSIAN.ENCODER                      = "GLOBAL"     # Options: "GLOBAL", "LOCAL"
-cfg.NETWORK.GAUSSIAN.ENCODER_OUT_DIM              = 5            # Options: 5, 64
+cfg.NETWORK.GAUSSIAN.ENCODER                      = "GLOBAL"     # Options: "GLOBAL", "LOCAL", None
+cfg.NETWORK.GAUSSIAN.ENCODER_OUT_DIM              = 5            # Options: 5, 64, 3
 cfg.NETWORK.GAUSSIAN.GLOBAL_ENCODER_N_BLOCKS      = 6
 cfg.NETWORK.GAUSSIAN.POS_EMD                      = "HASH_GRID"  # Options: "HASH_GRID", "SIN_COS"
 cfg.NETWORK.GAUSSIAN.HASH_GRID_N_LEVELS           = 16
 cfg.NETWORK.GAUSSIAN.HASH_GRID_LEVEL_DIM          = 8
 cfg.NETWORK.GAUSSIAN.SIN_COS_FREQ_BENDS           = 10
-cfg.NETWORK.GAUSSIAN.Z_DIM                        = None        # Options: None, 256
+cfg.NETWORK.GAUSSIAN.Z_DIM                        = None         # Options: None, 256
 cfg.NETWORK.GAUSSIAN.MLP_HIDDEN_DIM               = 512
 cfg.NETWORK.GAUSSIAN.MLP_N_SHARED_LAYERS          = 1
 cfg.NETWORK.GAUSSIAN.ATTR_FACTORS                 = {"rgb": 2}

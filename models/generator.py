@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:36:52
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-09-18 17:08:43
+# @Last Modified at: 2024-09-20 13:19:49
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -26,6 +26,9 @@ class Generator(torch.nn.Module):
             )
         elif cfg.ENCODER == "LOCAL":
             self.proj_encoder = LocalEncoder(n_classes, cfg.ENCODER_OUT_DIM - 3)
+        elif cfg.ENCODER is None:
+            self.proj_encoder = None
+            assert cfg.ENCODER_OUT_DIM == 3
         else:
             raise ValueError("Unknown encoder: %s" % cfg.ENCODER)
 
@@ -68,16 +71,22 @@ class Generator(torch.nn.Module):
         )
 
     def forward(self, proj_uv, rel_xyz, batch_idx, onehots, z, proj_hf, proj_seg):
-        proj_feat = self.proj_encoder(proj_hf, proj_seg)
         # Ref: https://github.com/hzxie/CityDreamer/blob/master/models/gancraft.py#L381
         if self.cfg.ENCODER == "GLOBAL":
+            proj_feat = self.proj_encoder(proj_hf, proj_seg)
             pt_feat = proj_feat.unsqueeze(dim=1).repeat(1, proj_uv.size(1), 1)
         elif self.cfg.ENCODER == "LOCAL":
+            proj_feat = self.proj_encoder(proj_hf, proj_seg)
             pt_feat = (
                 F.grid_sample(proj_feat, proj_uv.unsqueeze(dim=1), align_corners=True)
                 .squeeze(dim=2)
                 .permute(0, 2, 1)
             )
+        elif self.cfg.ENCODER is None:
+            pt_feat = torch.empty(
+                rel_xyz.size(0), rel_xyz.size(1), 0, device=proj_uv.device
+            )
+
         # print(pt_feat.size())  # torch.Size([B, n_pts, cfg.ENCODER_OUT_DIM - 3])
         pt_feat = torch.cat([pt_feat, rel_xyz], dim=2)
         # print(pt_feat.size())  # torch.Size([B, n_pts, cfg.ENCODER_OUT_DIM])
