@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-09-20 13:32:08
+# @Last Modified at: 2024-09-20 14:12:30
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict

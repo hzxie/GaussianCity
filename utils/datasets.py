@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-06 10:29:53
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-09-20 13:30:55
+# @Last Modified at: 2024-09-20 14:07:43
 # @Email:  root@haozhexie.com
 
 import copy
@@ -48,11 +48,12 @@ def collate_fn(batch):
 
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, cfg, split):
+    def __init__(self, cfg, split, classize_func):
         self.dataset_cfg = cfg
         self.split = split
         self.memcached = {}
         self.transforms = self._get_data_transforms(cfg, split)
+        self.classize_func = classize_func
         # Dummy parameters to be filled by the inherited classes
         self.renderings = []
         self.n_renderings = 0
@@ -108,8 +109,8 @@ class Dataset(torch.utils.data.Dataset):
         )
         rgb = np.array(utils.io.IO.get(rendering["rgb"]), dtype=np.float32)
         rgb = rgb / 255.0 * 2 - 1
-        seg = np.array(utils.io.IO.get(rendering["seg"]).convert("P"))
         ins = np.array(utils.io.IO.get(rendering["ins"]))
+        seg = self.classize_func(ins)
         pts = utils.io.IO.get(rendering["pts"])
         Rt = Rt[view_idx]
         # Normalize the camera position to fit the scale of the map.
@@ -254,7 +255,9 @@ class Dataset(torch.utils.data.Dataset):
 
 class GoogleDataset(Dataset):
     def __init__(self, cfg, split):
-        super(GoogleDataset, self).__init__(cfg.DATASETS.GOOGLE_EARTH, split)
+        super(GoogleDataset, self).__init__(
+            cfg.DATASETS.GOOGLE_EARTH, split, self.instances_to_classes
+        )
         self.cfg = cfg
         self.renderings = self._get_renderings(cfg.DATASETS.GOOGLE_EARTH, split)
         self.n_renderings = len(self.renderings)
@@ -293,12 +296,6 @@ class GoogleDataset(Dataset):
                     "footage",
                     "%s_%02d.jpeg" % (c, i),
                 ),
-                "seg": os.path.join(
-                    cfg.DIR,
-                    c,
-                    "seg",
-                    "%s_%02d.png" % (c, i),
-                ),
                 "ins": os.path.join(
                     cfg.DIR,
                     c,
@@ -326,7 +323,9 @@ class GoogleDataset(Dataset):
 
 class Kitti360Dataset(Dataset):
     def __init__(self, cfg, split):
-        super(Kitti360Dataset, self).__init__(cfg.DATASETS.KITTI_360, split)
+        super(Kitti360Dataset, self).__init__(
+            cfg.DATASETS.KITTI_360, split, self.instances_to_classes
+        )
         self.cfg = cfg
         self.renderings = self._get_renderings(cfg.DATASETS.KITTI_360, split)
         self.n_renderings = len(self.renderings)
@@ -377,12 +376,6 @@ class Kitti360Dataset(Dataset):
                     cfg.DIR,
                     c,
                     "footage",
-                    "%010d.png" % f,
-                ),
-                "seg": os.path.join(
-                    cfg.DIR,
-                    c,
-                    "seg",
                     "%010d.png" % f,
                 ),
                 "ins": os.path.join(
