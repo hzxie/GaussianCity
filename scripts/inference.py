@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-01-18 11:45:08
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-05-31 18:25:11
+# @Last Modified at: 2024-09-23 20:35:31
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -19,7 +19,6 @@ import pickle
 import sys
 import torch
 
-from PIL import Image
 from tqdm import tqdm
 
 PROJECT_HOME = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
@@ -36,6 +35,7 @@ CONSTANTS = {
         "N_TRAJECTORY_POINTS": 24,
         "POINT_SCALE_FACTOR": 0.65,
         "SPECIAL_Z_SCALE_CLASSES": {"ROAD": 1, "WATER": 5, "ZONE": 6},
+        "INST_RANGE": {"REST": [0, 10], "BLDG": [100, 16384]},
         "PROJ_SIZE": 2048,
         "SENSOR_SIZE": (960, 540),
         "K": [1528.1469407006614, 0, 480, 0, 1528.1469407006614, 270, 0, 0, 1],
@@ -44,6 +44,7 @@ CONSTANTS = {
         "N_CLASSES": 8,
         "POINT_SCALE_FACTOR": 0.65,
         "SPECIAL_Z_SCALE_CLASSES": {"ROAD": 1, "ZONE": 6},
+        "INST_RANGE": {"REST": [0, 10], "BLDG": [100, 10000], "CAR": [10000, 16384]},
         "PATCH_SIZE": 1280,
         "PROJ_SIZE": 2048,
         "SENSOR_SIZE": (1408, 376),
@@ -56,8 +57,12 @@ def _get_model(dataset, ckpt_file_path):
     if not os.path.exists(ckpt_file_path):
         return None
 
-    ckpt = torch.load(ckpt_file_path)
-    model = models.generator.Generator(ckpt["cfg"], CONSTANTS[dataset]["N_CLASSES"])
+    ckpt = torch.load(ckpt_file_path, weights_only=False)
+    model = models.generator.Generator(
+        ckpt["cfg"].NETWORK.GAUSSIAN,
+        CONSTANTS[dataset]["N_CLASSES"],
+        CONSTANTS[dataset]["PROJ_SIZE"],
+    )
     if torch.cuda.is_available():
         model = torch.nn.DataParallel(model).cuda()
     else:
@@ -92,7 +97,7 @@ def get_city_projections(dataset_dir):
             if os.path.isdir(os.path.join(dataset_dir, d))
         ]
     )
-    city = cities[0]  # np.random.choice(cities)
+    city = np.random.choice(cities)
     city_dir = os.path.join(dataset_dir, city)
 
     proj_dir = os.path.join(city_dir, "Projection")
@@ -109,10 +114,16 @@ def get_city_projections(dataset_dir):
     return metadata, projections, centers
 
 
-def get_style_lut(centers, models, z_dim=256):
+def get_style_lut(centers, models, inst_range, z_dim=256):
     lut = {ins: torch.rand(1, z_dim) for ins in centers.keys()}
-    for v in models.values():
+    for k, v in models.items():
         if v is None:
+            continue
+
+        if v.module.cfg.Z_DIM is None:
+            for i in range(*inst_range[k]):
+                if i in lut:
+                    del lut[i]
             continue
 
         keys = [k for k in centers.keys()]
@@ -122,6 +133,7 @@ def get_style_lut(centers, models, z_dim=256):
                 {ins: zs[ins].unsqueeze(0) for ins in keys}
                 # {ins: zs[np.random.choice(keys)].unsqueeze(0) for ins in keys}
             )
+
     return lut
 
 
@@ -135,9 +147,9 @@ def get_camera_poses(dataset, metadata):
 
 
 def _get_google_earth_camera_poses():
-    radius = np.random.randint(128, 512)
-    altitude = np.random.randint(256, 512)
-    logging.debug("Radius = %d, Altitude = %s" % (radius, altitude))
+    radius = np.random.randint(384, 768)
+    altitude = np.random.randint(384, 768)
+    logging.info("Radius = %d, Altitude = %s" % (radius, altitude))
     cx = CONSTANTS["GOOGLE_EARTH"]["PROJ_SIZE"] // 2
     cy = CONSTANTS["GOOGLE_EARTH"]["PROJ_SIZE"] // 2
 
@@ -352,7 +364,14 @@ def _get_z(instances, style_lut):
     assert b == 1 and c == 1, "Unexpected tensor shape (%d, %d, %d)" % (b, n, c)
 
     unique_instances = [i.item() for i in torch.unique(instances).short()]
-    unique_z = {ui: style_lut[ui].to(instances.device) for ui in unique_instances}
+    unique_z = {
+        ui: style_lut[ui].to(instances.device)
+        for ui in unique_instances
+        if ui in style_lut
+    }
+    # The style code is disabled for these instances
+    if not unique_z:
+        return None
 
     z = {}
     for ui in unique_instances:
@@ -466,7 +485,7 @@ def _get_gaussian_attributes(
     proj_uv = utils.helpers.get_projection_uv(
         abs_xyz,
         proj_tlp,
-        (CONSTANTS[dataset]["PROJ_SIZE"], CONSTANTS[dataset]["PROJ_SIZE"]),
+        CONSTANTS[dataset]["PROJ_SIZE"],
     )
     with torch.no_grad():
         pt_attrs = model(proj_uv, rel_xyz, batch_idx, onehots, zs, proj_hf, proj_seg)
@@ -561,6 +580,7 @@ def main(dataset, dataset_dir, output_file, bldg_ckpt, car_ckpt, rest_ckpt):
             "CAR": car_model,
             "REST": rest_model,
         },
+        CONSTANTS[dataset]["INST_RANGE"],
     )
 
     logging.info("Generating camera poses ...")
