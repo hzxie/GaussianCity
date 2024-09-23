@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-04-05 20:14:54
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-09-20 14:12:30
+# @Last Modified at: 2024-09-23 20:50:53
 # @Email:  root@haozhexie.com
 
 from easydict import EasyDict
@@ -129,6 +129,7 @@ cfg.NETWORK.GAUSSIAN.ATTR_FACTORS                 = {"rgb": 2}
 cfg.NETWORK.GAUSSIAN.ATTR_N_LAYERS                = {"rgb": 1}
 cfg.NETWORK.GAUSSIAN.DIS_N_CHANNEL_BASE           = 128
 cfg.NETWORK.GAUSSIAN.PTV3                         = EasyDict()
+cfg.NETWORK.GAUSSIAN.PTV3.ENABLED                 = True
 cfg.NETWORK.GAUSSIAN.PTV3.ORDER                   = ("cord")
 cfg.NETWORK.GAUSSIAN.PTV3.STRIDE                  = (2, 2, 2, 2)
 cfg.NETWORK.GAUSSIAN.PTV3.ENC_DEPTHS              = (2, 2, 2, 6, 2)

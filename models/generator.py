@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-03-09 20:36:52
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-09-20 13:19:49
+# @Last Modified at: 2024-09-23 20:49:35
 # @Email:  root@haozhexie.com
 
 import numpy as np
@@ -46,23 +46,28 @@ class Generator(torch.nn.Module):
         else:
             raise ValueError("Unknown positional encoder: %s" % cfg.POS_EMD)
 
-        self.pt_net = models.pt_v3.PointTransformerV3(
-            in_channels=pt_feat_dim,
-            order=cfg.PTV3.ORDER,
-            stride=cfg.PTV3.STRIDE,
-            enc_depths=cfg.PTV3.ENC_DEPTHS,
-            enc_channels=cfg.PTV3.ENC_CHANNELS,
-            enc_num_head=cfg.PTV3.ENC_N_HEAD,
-            enc_patch_size=cfg.PTV3.ENC_PATCH_SIZE,
-            dec_depths=cfg.PTV3.DEC_DEPTHS,
-            dec_channels=cfg.PTV3.DEC_CHANNELS,
-            dec_num_head=cfg.PTV3.DEC_N_HEAD,
-            dec_patch_size=cfg.PTV3.DEC_PATCH_SIZE,
-            enable_flash=cfg.PTV3.ENABLE_FLASH_ATTN,
-        )
+        if cfg.PTV3.ENABLED:
+            self.pt_net = models.pt_v3.PointTransformerV3(
+                in_channels=pt_feat_dim,
+                order=cfg.PTV3.ORDER,
+                stride=cfg.PTV3.STRIDE,
+                enc_depths=cfg.PTV3.ENC_DEPTHS,
+                enc_channels=cfg.PTV3.ENC_CHANNELS,
+                enc_num_head=cfg.PTV3.ENC_N_HEAD,
+                enc_patch_size=cfg.PTV3.ENC_PATCH_SIZE,
+                dec_depths=cfg.PTV3.DEC_DEPTHS,
+                dec_channels=cfg.PTV3.DEC_CHANNELS,
+                dec_num_head=cfg.PTV3.DEC_N_HEAD,
+                dec_patch_size=cfg.PTV3.DEC_PATCH_SIZE,
+                enable_flash=cfg.PTV3.ENABLE_FLASH_ATTN,
+            )
+            pt_feat_dim += cfg.PTV3.DEC_CHANNELS[0]
+        else:
+            self.pt_net = None
+
         self.ga_mlp = GaussianAttrMLP(
             n_classes,
-            pt_feat_dim + cfg.PTV3.DEC_CHANNELS[0],
+            pt_feat_dim,
             cfg.Z_DIM,
             cfg.MLP_HIDDEN_DIM,
             cfg.MLP_N_SHARED_LAYERS,
@@ -92,8 +97,14 @@ class Generator(torch.nn.Module):
         # print(pt_feat.size())  # torch.Size([B, n_pts, cfg.ENCODER_OUT_DIM])
         pt_feat1 = self.pos_encoder(pt_feat)
         # print(pt_feat1.size())  # torch.Size([B, n_pts, pt_feat_dim])
-        pt_feat2 = self.pt_net(batch_idx, pt_feat1, rel_xyz)
-        # print(pt_feat2.size())  # torch.Size([B, n_pts, pt_feat_dim + cfg.PTV3.DEC_CHANNELS[0]])
+        if self.pt_net is None:
+            pt_feat2 = torch.empty(
+                rel_xyz.size(0), rel_xyz.size(1), 0, device=proj_uv.device
+            )
+        else:
+            pt_feat2 = self.pt_net(batch_idx, pt_feat1, rel_xyz)
+
+        # print(pt_feat2.size())  # torch.Size([B, n_pts, pt_feat_dim])
         return self.ga_mlp(torch.cat([pt_feat1, pt_feat2], dim=-1), onehots, z)
 
 
