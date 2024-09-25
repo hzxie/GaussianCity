@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2023-12-22 15:10:13
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-08-18 14:45:53
+# @Last Modified at: 2024-09-25 14:42:04
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -40,19 +40,6 @@ Image.MAX_IMAGE_PIXELS = None
 
 
 CLASSES = {
-    "CITY_SAMPLE": {
-        "NULL": 0,
-        "ROAD": 1,
-        "FWY_DECK": 1,
-        "FWY_PILLAR": 2,
-        "FWY_BARRIER": 2,
-        "CAR": 3,
-        "WATER": 4,
-        "SKY": 5,
-        "ZONE": 6,
-        "BLDG_FACADE": 7,
-        "BLDG_ROOF": 8,
-    },
     # hzxie/city-dreamer/scripts/dataset_generator.py
     "GOOGLE_EARTH": {
         "NULL": 0,
@@ -79,57 +66,34 @@ CLASSES = {
 
 
 SCALES = {
-    "CITY_SAMPLE": {
-        "ROAD": 10,
-        "FWY_DECK": 10,
-        "FWY_PILLAR": 5,
-        "FWY_BARRIER": 2,
-        "CAR": 1,
-        "WATER": 50,
-        "SKY": 50,
-        "ZONE": 10,
-        "BLDG_FACADE": 3,
-        "BLDG_ROOF": 6,
-    },
     "GOOGLE_EARTH": {
         "ROAD": 2,
         "BLDG_FACADE": 1,
         "BLDG_ROOF": 1,
         "GREEN_LANDS": 2,
         "CONSTRUCTION": 1,
-        "WATER": 10,
+        "WATER": 4,
         "ZONE": 2,
     },
     "KITTI_360": {
-        "ROAD": 10,
-        "BLDG_FACADE": 2,
+        "ROAD": 2,
+        "BLDG_FACADE": 1,
         "CAR": 1,
-        "VEGETATION": 2,
-        "SKY": 25,
-        "ZONE": 10,
-        "BLDG_ROOF": 2,
+        "VEGETATION": 1,
+        "SKY": 4,
+        "ZONE": 2,
+        "BLDG_ROOF": 1,
     },
 }
 
 CONSTANTS = {
-    "CITY_SAMPLE": {
-        "SCALE": 20,  # 5x -> 1m (100 cm): 5 pixels
-        "WATER_Z": -17.5,
-        "MAP_SIZE": 24576,
-        "PATCH_SIZE": 5000,
-        "PROJECTION_SIZE": 2048,
-        "IMAGE_WIDTH": 1920,
-        "IMAGE_HEIGHT": 1080,
-        "CAR_INS_MIN_ID": 5000,
-        "SEG_MAP_PATTERN": "SemanticImage/%sSequence.%04d.png",
-        "OUT_FILE_NAME_PATTERN": "%04d",
-    },
     "GOOGLE_EARTH": {
         "SCALE": 1,
         "WATER_Z": 0,
         "MAP_SIZE": 2048,
         "PATCH_SIZE": 2048,
         "PROJECTION_SIZE": 2048,
+        "BLDG_INST_RANGE": [100, 16384],
         "IMAGE_WIDTH": 960,
         "IMAGE_HEIGHT": 540,
         "ZOOM_LEVEL": 18,
@@ -143,14 +107,14 @@ CONSTANTS = {
         "VOXEL_SIZE": 0.1,
         "PATCH_SIZE": 1280,
         "PROJECTION_SIZE": 2048,
-        "CAR_INS_MIN_ID": 10000,
+        "BLDG_INST_RANGE": [100, 10000],
+        "CAR_INST_RANGE": [10000, 16384],
         "OUTLIER_DIST_THRESHOLD": 2000,
         "SEG_MAP_PATTERN": "seg/%010d.png",
         "OUT_FILE_NAME_PATTERN": "%010d",
         "TREE_ASSETS_DIR": "/tmp/trees",
     },
     "ROOF_INS_OFFSET": 1,
-    "BLDG_INS_MIN_ID": 100,
 }
 
 
@@ -223,128 +187,12 @@ def _get_kitti_360_remapped_semantic_map(seg_map):
 
 
 def get_projections(dataset, city_dir, osm_dir):
-    if dataset == "CITY_SAMPLE":
-        return _get_city_sample_projections(city_dir)
-    elif dataset == "GOOGLE_EARTH":
+    if dataset == "GOOGLE_EARTH":
         return _get_google_earth_projections(city_dir, osm_dir)
     elif dataset == "KITTI_360":
         return _get_kitti_360_projections(city_dir)
     else:
         raise Exception("Unknown dataset: %s" % (dataset))
-
-
-def _get_city_sample_projections(city_dir):
-    HOU_CLASSES = {
-        "ROAD": 1,
-        "FWY_DECK": 2,
-        "FWY_PILLAR": 3,
-        "FWY_BARRIER": 4,
-        "ZONE": 5,
-        # The following classes are not appeared in the Houdini export
-        # But are needed by the _get_point_maps function.
-        "NULL": 0,
-        "BLDG_FACADE": 6,
-        "BLDG_ROOF": 7,
-    }
-    HOU_SCALES = {
-        "ROAD": 10,
-        "FWY_DECK": 10,
-        "FWY_PILLAR": 5,
-        "FWY_BARRIER": 2,
-        "CAR": 2,  # 1 -> 2 to make it more dense
-        "WATER": 50,
-        "SKY": 50,
-        "ZONE": 10,
-        "BLDG_FACADE": 5,
-        "BLDG_ROOF": 5,
-    }
-
-    points_file_path = os.path.join(city_dir, "POINTS.pkl")
-    if not os.path.exists(points_file_path):
-        logging.warning("File not found in %s" % (points_file_path))
-        return {}
-
-    with open(points_file_path, "rb") as fp:
-        points = pickle.load(fp)
-
-    projections = _get_city_sample_projection(points, HOU_CLASSES, HOU_SCALES)
-    projections["REST"] = _get_city_sample_water_areas(
-        projections["REST"], HOU_SCALES["WATER"]
-    )
-    return None, projections
-
-
-def _get_city_sample_projection(points, classes, scales):
-    car_rows = points[:, 3] >= CONSTANTS["CITY_SAMPLE"]["CAR_INS_MIN_ID"]
-    fwy_rows = np.isin(
-        points[:, 3],
-        [
-            classes["FWY_DECK"],
-            classes["FWY_PILLAR"],
-            classes["FWY_BARRIER"],
-        ],
-    )
-    rest_rows = ~np.logical_or(car_rows, fwy_rows)
-    return {
-        "CAR": _get_city_sample_points_projection(points[car_rows], classes, scales),
-        "FWY": _get_city_sample_points_projection(points[fwy_rows], classes, scales),
-        "REST": _get_city_sample_points_projection(points[rest_rows], classes, scales),
-    }
-
-
-def _get_city_sample_points_projection(points, classes, scales):
-    # assert points.dtype == np.int16
-    INVERSE_INDEX = {v: k for k, v in classes.items()}
-    ins_map = np.zeros(
-        (CONSTANTS["CITY_SAMPLE"]["MAP_SIZE"], CONSTANTS["CITY_SAMPLE"]["MAP_SIZE"]),
-        dtype=points.dtype,
-    )
-    tpd_hf = -1 * np.ones(
-        (CONSTANTS["CITY_SAMPLE"]["MAP_SIZE"], CONSTANTS["CITY_SAMPLE"]["MAP_SIZE"]),
-        dtype=points.dtype,
-    )
-    btu_hf = np.iinfo(points.dtype).max * np.ones(
-        (CONSTANTS["CITY_SAMPLE"]["MAP_SIZE"], CONSTANTS["CITY_SAMPLE"]["MAP_SIZE"]),
-        dtype=points.dtype,
-    )
-    for p in tqdm(points, leave=False):
-        x, y, z, c_id = p
-        if z < 0:
-            continue
-
-        c_name = INVERSE_INDEX[c_id] if c_id in INVERSE_INDEX else None
-        if c_name is None:
-            if c_id < CONSTANTS["CITY_SAMPLE"]["CAR_INS_MIN_ID"]:
-                # No building roof instance ID in the Houdini export
-                # assert c_id % 4 == 0, c_id
-                c_name = "BLDG_FACADE"
-            else:
-                c_name = "CAR"
-
-        s = scales[c_name]
-        x += CONSTANTS["CITY_SAMPLE"]["MAP_SIZE"] // 2
-        y += CONSTANTS["CITY_SAMPLE"]["MAP_SIZE"] // 2
-
-        # NOTE: The pts_map is generated by the _get_point_maps function.
-        # pts_map[y, x] = True
-        if tpd_hf[y, x] < z:
-            tpd_hf[y : y + s, x : x + s] = z
-            ins_map[y : y + s, x : x + s] = (
-                CLASSES["CITY_SAMPLE"][c_name]
-                if c_name not in ["BLDG_FACADE", "BLDG_ROOF", "CAR"]
-                else c_id
-            )
-        if btu_hf[y, x] > z:
-            btu_hf[y : y + s, x : x + s] = z
-
-    seg_map = _get_city_sample_seg_map(ins_map)
-    return {
-        "PTS": _get_point_maps(seg_map, CLASSES["CITY_SAMPLE"], SCALES["CITY_SAMPLE"]),
-        "INS": ins_map,
-        "SEG": seg_map,
-        "TD_HF": tpd_hf,
-        "BU_HF": btu_hf,
-    }
 
 
 def _get_point_maps(seg_map, classes, scales):
@@ -371,20 +219,6 @@ def _get_point_map(map_size, stride):
     coords = np.stack(np.meshgrid(ys, xs), axis=-1).reshape(-1, 2)
     pts_map[coords[:, 0], coords[:, 1]] = True
     return pts_map
-
-
-def _get_city_sample_water_areas(projection, scale):
-    # The rest areas are assigned as the water areas, which is aligned with CitySample.
-    water_area = projection["INS"] == CLASSES["CITY_SAMPLE"]["NULL"]
-    projection["INS"][water_area] = CLASSES["CITY_SAMPLE"]["WATER"]
-    projection["SEG"][water_area] = CLASSES["CITY_SAMPLE"]["WATER"]
-    projection["TD_HF"][water_area] = 0
-    projection["BU_HF"][water_area] = 0
-
-    wa_pts_map = _get_point_map(projection["PTS"].shape, scale)
-    wa_pts_map[~water_area] = False
-    projection["PTS"] += wa_pts_map
-    return projection
 
 
 @utils.helpers.static_vars(osm={}, instances={})
@@ -444,13 +278,12 @@ def _get_google_earth_projections(city_dir, osm_dir):
     max_bldg_inst = (
         max(_get_google_earth_projections.instances.values())
         if _get_google_earth_projections.instances
-        else CONSTANTS["BLDG_INS_MIN_ID"]
+        else CONSTANTS["GOOGLE_EARTH"]["BLDG_INST_RANGE"][0]
     )
     current_bldg_inst = max_bldg_inst
     for ri in np.unique(reorg_ins_map):
-        if ri < CONSTANTS["BLDG_INS_MIN_ID"]:
+        if ri < CONSTANTS["GOOGLE_EARTH"]["BLDG_INST_RANGE"][0]:
             continue
-
         if ri in _get_google_earth_projections.instances:
             current_bldg_inst = _get_google_earth_projections.instances[ri]
         else:
@@ -478,6 +311,10 @@ def _get_osm_data(osm_dir, city_name):
 
     height_field = np.array(Image.open(os.path.join(osm_dir, "hf.png")))
     semantic_map = np.array(Image.open(os.path.join(osm_dir, "seg.png")).convert("P"))
+    # NOTE: Map all CONSTRUCTIONS to BLDG_FACADE
+    semantic_map[semantic_map == CLASSES["GOOGLE_EARTH"]["CONSTRUCTION"]] = CLASSES[
+        "GOOGLE_EARTH"
+    ]["BLDG_FACADE"]
     with open(os.path.join(osm_dir, "metadata.json")) as f:
         metadata = json.load(f)
 
@@ -498,7 +335,7 @@ def _get_google_earth_instance_map(seg_map):
 
     # Make building instance IDs are even numbers and start from 100
     # Assume the ID of a facade instance is 2k, the corresponding roof instance is 2k + 1.
-    labels = (labels + CONSTANTS["BLDG_INS_MIN_ID"]) * 2
+    labels = (labels + CONSTANTS["GOOGLE_EARTH"]["BLDG_INST_RANGE"][0]) * 2
 
     seg_map[seg_map == CLASSES["GOOGLE_EARTH"]["BLDG_FACADE"]] = 0
     seg_map = seg_map * (1 - building_mask) + labels * building_mask
@@ -604,8 +441,8 @@ def _get_kitti_360_projections(city_dir):
 
 
 @utils.helpers.static_vars(
-    car_counter=CONSTANTS["KITTI_360"]["CAR_INS_MIN_ID"],
-    bldg_counter=CONSTANTS["BLDG_INS_MIN_ID"],
+    car_counter=CONSTANTS["KITTI_360"]["CAR_INST_RANGE"][0],
+    bldg_counter=CONSTANTS["KITTI_360"]["BLDG_INST_RANGE"][0],
 )
 def _get_kitti_360_3d_bbox_annotations(xml_node):
     KITTI_CLASSES = {
@@ -1016,9 +853,7 @@ def _get_kitti_360_merged_projections(metadata, projections):
 
 
 def get_seg_map_from_ins_map(dataset, ins_map):
-    if dataset == "CITY_SAMPLE":
-        return _get_city_sample_seg_map(ins_map)
-    elif dataset == "GOOGLE_EARTH":
+    if dataset == "GOOGLE_EARTH":
         return _get_google_earth_seg_map(ins_map)
     elif dataset == "KITTI_360":
         return _get_kitti_360_seg_map(ins_map)
@@ -1026,44 +861,30 @@ def get_seg_map_from_ins_map(dataset, ins_map):
         raise Exception("Unknown dataset: %s" % (dataset))
 
 
-def _get_city_sample_seg_map(ins_map):
-    ins_map = ins_map.copy()
-    ins_map[ins_map >= CONSTANTS["CITY_SAMPLE"]["CAR_INS_MIN_ID"]] = CLASSES[
-        "CITY_SAMPLE"
-    ]["CAR"]
-    ins_map[np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))] = (
-        CLASSES["CITY_SAMPLE"]["BLDG_ROOF"]
-    )
-    ins_map[ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]] = CLASSES["CITY_SAMPLE"][
-        "BLDG_FACADE"
-    ]
-    return ins_map
-
-
 def _get_google_earth_seg_map(ins_map):
     # NOTE: BLDG_ROOF is mapped to BLDG_FACADE because the BLDG_ROOF is not in the semantic map.
     ins_map = ins_map.copy()
     # ins_map[
-    #     np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))
+    #     np.where((ins_map >= CONSTANTS["GOOGLE_EARTH"]["BLDG_INST_RANGE"][0]) & (ins_map % 2))
     # ] = CLASSES["GOOGLE_EARTH"]["BLDG_ROOF"]
-    ins_map[ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]] = CLASSES["GOOGLE_EARTH"][
-        "BLDG_FACADE"
-    ]
+    ins_map[ins_map >= CONSTANTS["GOOGLE_EARTH"]["BLDG_INST_RANGE"][0]] = CLASSES[
+        "GOOGLE_EARTH"
+    ]["BLDG_FACADE"]
     return ins_map
 
 
 def _get_kitti_360_seg_map(ins_map):
     # NOTE: BLDG_ROOF is mapped to BLDG_FACADE because the BLDG_ROOF is not in the semantic map.
     ins_map = ins_map.copy()
-    ins_map[ins_map >= CONSTANTS["KITTI_360"]["CAR_INS_MIN_ID"]] = CLASSES["KITTI_360"][
-        "CAR"
-    ]
+    ins_map[ins_map >= CONSTANTS["KITTI_360"]["CAR_INST_RANGE"][0]] = CLASSES[
+        "KITTI_360"
+    ]["CAR"]
     # ins_map[
-    #     np.where((ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]) & (ins_map % 2))
+    #     np.where((ins_map >= CONSTANTS["KITTI_360"]["BLDG_INST_RANGE"][0]) & (ins_map % 2))
     # ] = CLASSES["KITTI_360"]["BLDG_ROOF"]
-    ins_map[ins_map >= CONSTANTS["BLDG_INS_MIN_ID"]] = CLASSES["KITTI_360"][
-        "BLDG_FACADE"
-    ]
+    ins_map[ins_map >= CONSTANTS["KITTI_360"]["BLDG_INST_RANGE"][0]] = CLASSES[
+        "KITTI_360"
+    ]["BLDG_FACADE"]
     return ins_map
 
 
@@ -1112,15 +933,16 @@ def load_projections(output_dir):
     return projections
 
 
-def get_centers_from_projections(projections):
+def get_centers_from_projections(dataset, projections):
     centers = {}
     for c, p in projections.items():
         instances = np.unique(p["INS"])
         # Append SKY to instances. Since SKY is not in the semantic map.
-        instances = np.append(instances, CLASSES["CITY_SAMPLE"]["SKY"])
+        if "SKY" in CLASSES[dataset]:
+            instances = np.append(instances, CLASSES[dataset]["SKY"])
 
         for i in tqdm(instances, desc="Calculating centers for %s" % c):
-            if i >= CONSTANTS["BLDG_INS_MIN_ID"]:
+            if i >= CONSTANTS[dataset]["BLDG_INST_RANGE"][0]:
                 ds_mask = p["INS"] == i
                 contours, _ = cv2.findContours(
                     ds_mask.astype(np.uint8),
@@ -1151,8 +973,8 @@ def get_centers_from_projections(projections):
             )
             # Fix the centers for BLDG_ROOF
             if (
-                i >= CONSTANTS["BLDG_INS_MIN_ID"]
-                and i < CONSTANTS["CITY_SAMPLE"]["CAR_INS_MIN_ID"]
+                i >= CONSTANTS[dataset]["BLDG_INST_RANGE"][0]
+                and i < CONSTANTS[dataset]["BLDG_INST_RANGE"][1]
             ):
                 centers[i + 1] = centers[i]
 
@@ -1162,7 +984,7 @@ def get_centers_from_projections(projections):
 def get_seg_ins_relations(dataset):
     return {
         # BLDG
-        "BLDG_INS_MIN_ID": CONSTANTS["BLDG_INS_MIN_ID"],
+        "BLDG_INS_MIN_ID": CONSTANTS[dataset]["BLDG_INST_RANGE"][0],
         "ROOF_INS_OFFSET": CONSTANTS["ROOF_INS_OFFSET"],
         "BLDG_FACADE_SEMANTIC_ID": CLASSES[dataset]["BLDG_FACADE"],
         "BLDG_ROOF_SEMANTIC_ID": (
@@ -1172,8 +994,8 @@ def get_seg_ins_relations(dataset):
         ),
         # CAR (not used in Google-Earth)
         "CAR_INS_MIN_ID": (
-            CONSTANTS[dataset]["CAR_INS_MIN_ID"]
-            if "CAR_INS_MIN_ID" in CONSTANTS[dataset]
+            CONSTANTS[dataset]["CAR_INST_RANGE"][0]
+            if "CAR_INST_RANGE" in CONSTANTS[dataset]
             else 32767
         ),
         "CAR_SEMANTIC_ID": (
@@ -1183,36 +1005,12 @@ def get_seg_ins_relations(dataset):
 
 
 def get_camera_parameters(dataset, city_dir, metadata):
-    if dataset == "CITY_SAMPLE":
-        return get_city_sample_camera_parameters(city_dir)
-    elif dataset == "GOOGLE_EARTH":
+    if dataset == "GOOGLE_EARTH":
         return get_google_earth_camera_parameters(city_dir, metadata)
     elif dataset == "KITTI_360":
         return get_kitti_360_camera_parameters(city_dir, metadata)
     else:
         raise Exception("Unknown dataset: %s" % (dataset))
-
-
-def get_city_sample_camera_parameters(city_dir):
-    with open(os.path.join(city_dir, "CameraRig.json")) as fp:
-        cam_rig = json.load(fp)
-        cam_rig = cam_rig["cameras"]["CameraComponent"]
-        # render images with different resolution
-        cam_rig["intrinsics"][0] /= 1920 / CONSTANTS["CITY_SAMPLE"]["IMAGE_WIDTH"]
-        cam_rig["intrinsics"][4] /= 1080 / CONSTANTS["CITY_SAMPLE"]["IMAGE_HEIGHT"]
-        cam_rig["intrinsics"][2] = CONSTANTS["CITY_SAMPLE"]["IMAGE_WIDTH"] // 2
-        cam_rig["intrinsics"][5] = CONSTANTS["CITY_SAMPLE"]["IMAGE_HEIGHT"] // 2
-        cam_rig["sensor_size"] = [
-            CONSTANTS["CITY_SAMPLE"]["IMAGE_WIDTH"],
-            CONSTANTS["CITY_SAMPLE"]["IMAGE_HEIGHT"],
-        ]
-
-    camera_poses = []
-    with open(os.path.join(city_dir, "CameraPoses.csv")) as fp:
-        reader = csv.DictReader(fp)
-        camera_poses = [r for r in reader]
-
-    return cam_rig, camera_poses
 
 
 def get_google_earth_camera_parameters(city_dir, metadata):
@@ -1664,9 +1462,7 @@ def get_visible_points(
 
 
 def main(dataset, data_dir, osm_dir, is_debug):
-    assert dataset in ["GOOGLE_EARTH", "KITTI_360", "CITY_SAMPLE"], (
-        "Unknown dataset: %s" % dataset
-    )
+    assert dataset in ["GOOGLE_EARTH", "KITTI_360"], "Unknown dataset: %s" % dataset
 
     if dataset == "KITTI_360":
         logging.info("Reorganzing the KITTI 360 dataset ...")
@@ -1699,7 +1495,7 @@ def main(dataset, data_dir, osm_dir, is_debug):
             with open(os.path.join(city_dir, "CENTERS.pkl"), "rb") as fp:
                 centers = pickle.load(fp)
         else:
-            centers = get_centers_from_projections(projections)
+            centers = get_centers_from_projections(dataset, projections)
             with open(os.path.join(city_dir, "CENTERS.pkl"), "wb") as fp:
                 pickle.dump(centers, fp)
 
@@ -1763,7 +1559,7 @@ def main(dataset, data_dir, osm_dir, is_debug):
                     CONSTANTS[dataset]["PATCH_SIZE"],
                     fov_x / 2,
                 )
-                if dataset in ["CITY_SAMPLE", "KITTI_360"]
+                if dataset in ["KITTI_360"]
                 else None
             )
             local_projections = get_local_projections(
@@ -1779,8 +1575,8 @@ def main(dataset, data_dir, osm_dir, is_debug):
                 CONSTANTS[dataset]["WATER_Z"] if "WATER_Z" in CONSTANTS[dataset] else 0,
                 view_frustum_cords,
             )
-            # Generate sky points for the CitySample dataset
-            if dataset in ["CITY_SAMPLE", "KITTI_360"]:
+            # Generate sky points for the KITTI-360 dataset
+            if dataset in ["KITTI_360"]:
                 sky_points = get_sky_points(
                     view_frustum_cords[1:3],
                     cam_pos[2],
@@ -1800,7 +1596,6 @@ def main(dataset, data_dir, osm_dir, is_debug):
                 cam_pos.copy(),
                 cam_quat,
                 CLASSES[dataset]["NULL"],
-                dataset == "CITY_SAMPLE",
             )
 
             if dataset == "KITTI_360":
@@ -1866,7 +1661,7 @@ def main(dataset, data_dir, osm_dir, is_debug):
             )
             seg_file_name = (
                 CONSTANTS[dataset]["SEG_MAP_PATTERN"] % (city, int(r["id"]))
-                if dataset in ["CITY_SAMPLE", "GOOGLE_EARTH"]
+                if dataset in ["GOOGLE_EARTH"]
                 else CONSTANTS[dataset]["SEG_MAP_PATTERN"] % int(r["id"])
             )
             seg_map = np.array(
@@ -1897,9 +1692,9 @@ if __name__ == "__main__":
         level=logging.INFO,
     )
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", default="CITY_SAMPLE")
+    parser.add_argument("--dataset", default="GOOGLE_EARTH")
     parser.add_argument(
-        "--data_dir", default=os.path.join(PROJECT_HOME, "data", "city-sample")
+        "--data_dir", default=os.path.join(PROJECT_HOME, "data", "google-earth")
     )
     parser.add_argument("--osm_dir", default=os.path.join(PROJECT_HOME, "data", "osm"))
     parser.add_argument("--debug", action="store_true")

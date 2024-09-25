@@ -33,7 +33,7 @@ CONSTANTS = {
     "GOOGLE_EARTH": {
         "N_CLASSES": 8,
         "N_TRAJECTORY_POINTS": 24,
-        "POINT_SCALE_FACTOR": 0.65,
+        "POINT_SCALE_FACTOR": 0.5,
         "SPECIAL_Z_SCALE_CLASSES": {"ROAD": 1, "WATER": 5, "ZONE": 6},
         "INST_RANGE": {"REST": [0, 10], "BLDG": [100, 16384]},
         "PROJ_SIZE": 2048,
