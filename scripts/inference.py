@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-01-18 11:45:08
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-09-23 20:35:31
+# @Last Modified at: 2024-09-26 16:29:26
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -42,7 +42,7 @@ CONSTANTS = {
     },
     "KITTI_360": {
         "N_CLASSES": 8,
-        "POINT_SCALE_FACTOR": 0.65,
+        "POINT_SCALE_FACTOR": 0.5,
         "SPECIAL_Z_SCALE_CLASSES": {"ROAD": 1, "ZONE": 6},
         "INST_RANGE": {"REST": [0, 10], "BLDG": [100, 10000], "CAR": [10000, 16384]},
         "PATCH_SIZE": 1280,
@@ -185,6 +185,8 @@ def _get_kitti_360_camera_poses(city_dir):
 
 
 def render(dataset, projections, centers, style_lut, cam_pose, gr, models):
+    print(cam_pose)
+
     cam_quat = np.array(
         [cam_pose["qx"], cam_pose["qy"], cam_pose["qz"], cam_pose["qw"]],
         dtype=np.float32,
@@ -504,10 +506,12 @@ def _instances_to_classes(dataset, instances):
 
 def _google_earth_instances_to_classes(instances):
     bldg_facade_idx = (
-        instances >= scripts.dataset_generator.CONSTANTS["BLDG_INS_MIN_ID"]
+        instances
+        >= scripts.dataset_generator.CONSTANTS["GOOGLE_EARTH"]["BLDG_INST_RANGE"][0]
     ) & (instances % 2 == 0)
     bldg_roof_idx = (
-        instances >= scripts.dataset_generator.CONSTANTS["BLDG_INS_MIN_ID"]
+        instances
+        >= scripts.dataset_generator.CONSTANTS["GOOGLE_EARTH"]["BLDG_INST_RANGE"][0]
     ) & (instances % 2 == 1)
 
     classes = instances.clone()
@@ -522,23 +526,30 @@ def _google_earth_instances_to_classes(instances):
 
 def _kitti_360_instances_to_classes(instances):
     bldg_facade_idx = (
-        (instances >= scripts.dataset_generator.CONSTANTS["BLDG_INS_MIN_ID"])
+        (
+            instances
+            >= scripts.dataset_generator.CONSTANTS["KITTI_360"]["BLDG_INST_RANGE"][0]
+        )
         & (
             instances
-            < scripts.dataset_generator.CONSTANTS["KITTI_360"]["CAR_INS_MIN_ID"]
+            < scripts.dataset_generator.CONSTANTS["KITTI_360"]["BLDG_INST_RANGE"][1]
         )
         & (instances % 2 == 0)
     )
     bldg_roof_idx = (
-        (instances >= scripts.dataset_generator.CONSTANTS["BLDG_INS_MIN_ID"])
+        (
+            instances
+            >= scripts.dataset_generator.CONSTANTS["KITTI_360"]["BLDG_INST_RANGE"][0]
+        )
         & (
             instances
-            < scripts.dataset_generator.CONSTANTS["KITTI_360"]["CAR_INS_MIN_ID"]
+            < scripts.dataset_generator.CONSTANTS["KITTI_360"]["BLDG_INST_RANGE"][0]
         )
         & (instances % 2 == 1)
     )
     car_idx = (
-        instances >= scripts.dataset_generator.CONSTANTS["KITTI_360"]["CAR_INS_MIN_ID"]
+        instances
+        >= scripts.dataset_generator.CONSTANTS["KITTI_360"]["CAR_INST_RANGE"][0]
     )
 
     classes = instances.clone()
