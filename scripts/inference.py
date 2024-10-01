@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-01-18 11:45:08
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-09-26 16:29:26
+# @Last Modified at: 2024-10-01 19:33:06
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -18,6 +18,7 @@ import os
 import pickle
 import sys
 import torch
+import torchvision.transforms
 
 from tqdm import tqdm
 
@@ -33,7 +34,7 @@ CONSTANTS = {
     "GOOGLE_EARTH": {
         "N_CLASSES": 8,
         "N_TRAJECTORY_POINTS": 24,
-        "POINT_SCALE_FACTOR": 0.5,
+        "POINT_SCALE_FACTOR": 0.45,
         "SPECIAL_Z_SCALE_CLASSES": {"ROAD": 1, "WATER": 5, "ZONE": 6},
         "INST_RANGE": {"REST": [0, 10], "BLDG": [100, 16384]},
         "PROJ_SIZE": 2048,
@@ -58,8 +59,24 @@ def _get_model(dataset, ckpt_file_path):
         return None
 
     ckpt = torch.load(ckpt_file_path, weights_only=False)
+    model_cfg = ckpt["cfg"].NETWORK.GAUSSIAN
+    model_cfg.ENCODER = "LOCAL" if "ENCODER" not in model_cfg else model_cfg.ENCODER
+    model_cfg.ENCODER_OUT_DIM = (
+        64 if "ENCODER_OUT_DIM" not in model_cfg else model_cfg.ENCODER_OUT_DIM
+    )
+    model_cfg.POS_EMD = "SIN_COS" if "POS_EMD" not in model_cfg else model_cfg.POS_EMD
+    model_cfg.SIN_COS_FREQ_BENDS = (
+        10 if "SIN_COS_FREQ_BENDS" not in model_cfg else model_cfg.SIN_COS_FREQ_BENDS
+    )
+    if ckpt_file_path.find("no-ptv3") == -1:
+        model_cfg.PTV3.ENABLED = (
+            True if "ENABLED" not in model_cfg.PTV3 else model_cfg.PTV3.ENABLED
+        )
+    else:
+        model_cfg.PTV3.ENABLED = False
+
     model = models.generator.Generator(
-        ckpt["cfg"].NETWORK.GAUSSIAN,
+        model_cfg,
         CONSTANTS[dataset]["N_CLASSES"],
         CONSTANTS[dataset]["PROJ_SIZE"],
     )
@@ -130,8 +147,8 @@ def get_style_lut(centers, models, inst_range, z_dim=256):
         if hasattr(v.module, "z"):
             zs = v.module.z
             lut.update(
-                {ins: zs[ins].unsqueeze(0) for ins in keys}
-                # {ins: zs[np.random.choice(keys)].unsqueeze(0) for ins in keys}
+                # {ins: zs[ins].unsqueeze(0) for ins in keys}
+                {ins: zs[np.random.choice(keys)].unsqueeze(0) for ins in keys}
             )
 
     return lut
@@ -139,16 +156,18 @@ def get_style_lut(centers, models, inst_range, z_dim=256):
 
 def get_camera_poses(dataset, metadata):
     if dataset == "GOOGLE_EARTH":
-        return _get_google_earth_camera_poses()
+        return _get_google_earth_camera_poses(metadata)
     elif dataset == "KITTI_360":
         return _get_kitti_360_camera_poses(metadata["city_dir"])
     else:
         raise NotImplementedError
 
 
-def _get_google_earth_camera_poses():
-    radius = np.random.randint(384, 768)
-    altitude = np.random.randint(384, 768)
+def _get_google_earth_camera_poses(metadata):
+    radius = np.random.randint(256, 768)
+    altitude = np.random.randint(512, 768)
+    metadata["radius"] = radius
+    metadata["altitude"] = altitude
     logging.info("Radius = %d, Altitude = %s" % (radius, altitude))
     cx = CONSTANTS["GOOGLE_EARTH"]["PROJ_SIZE"] // 2
     cy = CONSTANTS["GOOGLE_EARTH"]["PROJ_SIZE"] // 2
@@ -185,8 +204,6 @@ def _get_kitti_360_camera_poses(city_dir):
 
 
 def render(dataset, projections, centers, style_lut, cam_pose, gr, models):
-    print(cam_pose)
-
     cam_quat = np.array(
         [cam_pose["qx"], cam_pose["qy"], cam_pose["qz"], cam_pose["qw"]],
         dtype=np.float32,
@@ -194,7 +211,9 @@ def render(dataset, projections, centers, style_lut, cam_pose, gr, models):
     cam_pos = np.array(
         [cam_pose["tx"], cam_pose["ty"], cam_pose["tz"]], dtype=np.float32
     )
-    local_projections, pts = _get_bev_points(dataset, projections, cam_pos, cam_quat)
+    local_projections, pts, ins_map = _get_bev_points(
+        dataset, projections, cam_pos, cam_quat
+    )
 
     pts, batch_idx = _get_normalized_pt_cords(pts, centers)
     (
@@ -206,6 +225,8 @@ def render(dataset, projections, centers, style_lut, cam_pose, gr, models):
     ) = _get_tensors(dataset, batch_idx, pts, local_projections)
 
     instances = pts[:, :, [4]]
+    # Prevent water points from being too small
+    # pts[:, (instances == 5).squeeze(), [3]] *= 1.5
     classes = _instances_to_classes(dataset, instances)
     scales = utils.helpers.get_point_scales(
         pts[:, :, [3]] * CONSTANTS[dataset]["POINT_SCALE_FACTOR"],
@@ -229,6 +250,7 @@ def render(dataset, projections, centers, style_lut, cam_pose, gr, models):
         models,
     )
 
+    blurrer = torchvision.transforms.GaussianBlur(kernel_size=3, sigma=(2, 2))
     gs_pts = utils.helpers.get_gaussian_points(abs_xyz, scales, pt_attrs)
     with torch.no_grad():
         fake_img = utils.helpers.get_gaussian_rasterization(
@@ -237,6 +259,16 @@ def render(dataset, projections, centers, style_lut, cam_pose, gr, models):
             cam_pos[None, ...],
             cam_quat[None, ...],
         )
+        road_mask = (
+            (
+                torch.from_numpy(ins_map).cuda()
+                == scripts.dataset_generator.CLASSES[dataset]["ROAD"]
+            )
+            .repeat(1, 3, 1, 1)
+            .float()
+        )
+        fake_img = blurrer(fake_img) * road_mask + fake_img * (1 - road_mask)
+
     return fake_img
 
 
@@ -301,10 +333,11 @@ def _get_bev_points(dataset, projections, cam_pos, cam_quat):
         vp_map = np.fliplr(vp_map)
         ins_map = np.fliplr(ins_map)
 
+    ins_map = points[:, 4][vp_map]
     vp_idx = np.sort(np.unique(vp_map))
     vp_idx = vp_idx[vp_idx >= 0]
     points = points[vp_idx]
-    return local_projections, points
+    return local_projections, points, ins_map
 
 
 def _get_normalized_pt_cords(pts, centers):
@@ -564,7 +597,7 @@ def _kitti_360_instances_to_classes(instances):
 def get_video(frames, img_size, output_file):
     video = cv2.VideoWriter(
         output_file,
-        cv2.VideoWriter_fourcc(*"avc1"),
+        cv2.VideoWriter_fourcc(*"mp4v"),
         4,
         (img_size[0], img_size[1]),  # (width, height)
     )
@@ -605,7 +638,15 @@ def main(dataset, dataset_dir, output_file, bldg_ckpt, car_ckpt, rest_ckpt):
         flip_ud=dataset == "KITTI_360",
         device=torch.device("cuda"),
     )
+
     frames = []
+    output_dir = "output/render/%s-R%d-A%d" % (
+        os.path.basename(metadata["city_dir"]),
+        metadata["radius"],
+        metadata["altitude"],
+    )
+    os.makedirs(output_dir, exist_ok=True)
+
     for f_idx, cam_pose in enumerate(tqdm(cam_poses)):
         img = render(
             dataset,
@@ -618,7 +659,7 @@ def main(dataset, dataset_dir, output_file, bldg_ckpt, car_ckpt, rest_ckpt):
         )
         img = (utils.helpers.tensor_to_image(img, "RGB") * 255).astype(np.uint8)
         frames.append(img[..., ::-1])
-        cv2.imwrite("output/render/%04d.jpg" % f_idx, img[..., ::-1])
+        cv2.imwrite("%s/%04d.jpg" % (output_dir, f_idx), img[..., ::-1])
 
     get_video(frames, CONSTANTS[dataset]["SENSOR_SIZE"], output_file)
 
