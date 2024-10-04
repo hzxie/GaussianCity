@@ -4,7 +4,7 @@
 # @Author: Haozhe Xie
 # @Date:   2024-01-18 11:45:08
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-10-01 19:33:06
+# @Last Modified at: 2024-10-04 10:49:56
 # @Email:  root@haozhexie.com
 
 import argparse
@@ -60,20 +60,22 @@ def _get_model(dataset, ckpt_file_path):
 
     ckpt = torch.load(ckpt_file_path, weights_only=False)
     model_cfg = ckpt["cfg"].NETWORK.GAUSSIAN
-    model_cfg.ENCODER = "LOCAL" if "ENCODER" not in model_cfg else model_cfg.ENCODER
-    model_cfg.ENCODER_OUT_DIM = (
-        64 if "ENCODER_OUT_DIM" not in model_cfg else model_cfg.ENCODER_OUT_DIM
-    )
-    model_cfg.POS_EMD = "SIN_COS" if "POS_EMD" not in model_cfg else model_cfg.POS_EMD
-    model_cfg.SIN_COS_FREQ_BENDS = (
-        10 if "SIN_COS_FREQ_BENDS" not in model_cfg else model_cfg.SIN_COS_FREQ_BENDS
-    )
-    if ckpt_file_path.find("no-ptv3") == -1:
-        model_cfg.PTV3.ENABLED = (
-            True if "ENABLED" not in model_cfg.PTV3 else model_cfg.PTV3.ENABLED
-        )
-    else:
-        model_cfg.PTV3.ENABLED = False
+    # model_cfg.ENCODER = "LOCAL" if "ENCODER" not in model_cfg else model_cfg.ENCODER
+    # model_cfg.ENCODER_OUT_DIM = (
+    #     64 if "ENCODER_OUT_DIM" not in model_cfg else model_cfg.ENCODER_OUT_DIM
+    # )
+    # model_cfg.POS_EMD = "SIN_COS" if "POS_EMD" not in model_cfg else model_cfg.POS_EMD
+    # model_cfg.SIN_COS_FREQ_BENDS = (
+    #     10 if "SIN_COS_FREQ_BENDS" not in model_cfg else model_cfg.SIN_COS_FREQ_BENDS
+    # )
+    # if ckpt_file_path.find("no-ptv3") == -1:
+    #     model_cfg.PTV3.ENABLED = (
+    #         True if "ENABLED" not in model_cfg.PTV3 else model_cfg.PTV3.ENABLED
+    #     )
+    # else:
+    #     model_cfg.PTV3.ENABLED = False
+    # if "ENABLED" not in model_cfg.PTV3:
+    #     model_cfg.PTV3.ENABLED = True
 
     model = models.generator.Generator(
         model_cfg,
@@ -147,8 +149,8 @@ def get_style_lut(centers, models, inst_range, z_dim=256):
         if hasattr(v.module, "z"):
             zs = v.module.z
             lut.update(
-                # {ins: zs[ins].unsqueeze(0) for ins in keys}
-                {ins: zs[np.random.choice(keys)].unsqueeze(0) for ins in keys}
+                {ins: zs[ins].unsqueeze(0) for ins in keys}
+                # {ins: zs[np.random.choice(keys)].unsqueeze(0) for ins in keys}
             )
 
     return lut
@@ -235,7 +237,7 @@ def render(dataset, projections, centers, style_lut, cam_pose, gr, models):
     )
 
     bldg_idx, car_idx, rest_idx = _get_pt_indexes_by_models(
-        classes, models["BLDG"], models["CAR"]
+        dataset, classes, models["BLDG"], models["CAR"]
     )
     abs_xyz, scales, pt_attrs = _get_pt_attrs_by_models(
         dataset,
@@ -410,6 +412,9 @@ def _get_z(instances, style_lut):
 
     z = {}
     for ui in unique_instances:
+        if ui not in unique_z:
+            continue
+
         idx = instances[..., 0] == ui
         z[ui] = {
             "z": unique_z[ui],
@@ -418,7 +423,7 @@ def _get_z(instances, style_lut):
     return z
 
 
-def _get_pt_indexes_by_models(classes, bldg_model, car_model):
+def _get_pt_indexes_by_models(dataset, classes, bldg_model, car_model):
     classes = classes.squeeze()
     car_idx = torch.zeros_like(classes)
     bldg_idx = torch.zeros_like(classes)
@@ -427,19 +432,18 @@ def _get_pt_indexes_by_models(classes, bldg_model, car_model):
             classes,
             torch.tensor(
                 [
-                    scripts.dataset_generator.CLASSES["GOOGLE_EARTH"]["BLDG_FACADE"],
-                    scripts.dataset_generator.CLASSES["GOOGLE_EARTH"]["BLDG_ROOF"],
+                    scripts.dataset_generator.CLASSES[dataset]["BLDG_FACADE"],
+                    scripts.dataset_generator.CLASSES[dataset]["BLDG_ROOF"],
                 ],
                 device=classes.device,
             ),
         )
-    if car_model is not None:
+    if car_model is not None and "CAR" in scripts.dataset_generator.CLASSES[dataset]:
         car_idx = torch.isin(
             classes,
             torch.tensor(
                 [
-                    scripts.dataset_generator.CLASSES["GOOGLE_EARTH"]["BLDG_FACADE"],
-                    scripts.dataset_generator.CLASSES["GOOGLE_EARTH"]["BLDG_ROOF"],
+                    scripts.dataset_generator.CLASSES[dataset]["CAR"],
                 ],
                 device=classes.device,
             ),
@@ -576,7 +580,7 @@ def _kitti_360_instances_to_classes(instances):
         )
         & (
             instances
-            < scripts.dataset_generator.CONSTANTS["KITTI_360"]["BLDG_INST_RANGE"][0]
+            < scripts.dataset_generator.CONSTANTS["KITTI_360"]["BLDG_INST_RANGE"][1]
         )
         & (instances % 2 == 1)
     )
@@ -640,11 +644,12 @@ def main(dataset, dataset_dir, output_file, bldg_ckpt, car_ckpt, rest_ckpt):
     )
 
     frames = []
-    output_dir = "output/render/%s-R%d-A%d" % (
-        os.path.basename(metadata["city_dir"]),
-        metadata["radius"],
-        metadata["altitude"],
-    )
+    # output_dir = "output/render/%s-R%d-A%d" % (
+    #     os.path.basename(metadata["city_dir"]),
+    #     metadata["radius"],
+    #     metadata["altitude"],
+    # )
+    output_dir = "output/render"
     os.makedirs(output_dir, exist_ok=True)
 
     for f_idx, cam_pose in enumerate(tqdm(cam_poses)):
