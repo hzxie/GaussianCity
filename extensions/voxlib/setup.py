@@ -4,7 +4,7 @@
 # @Author: NVIDIA Corporation
 # @Date:   2021-10-13 00:00:00
 # @Last Modified by: Haozhe Xie
-# @Last Modified at: 2024-03-27 10:26:27
+# @Last Modified at: 2024-10-13 03:00:47
 # @Email:  root@haozhexie.com
 
 from setuptools import setup
@@ -15,7 +15,7 @@ nvcc_args = []
 
 setup(
     name="voxlib_ext",
-    version="2.0.1",
+    version="3.0.0",
     ext_modules=[
         CUDAExtension(
             "voxlib",
@@ -23,6 +23,7 @@ setup(
                 "bindings.cpp",
                 "ray_voxel_intersection.cu",
                 "points_to_volume.cu",
+                "maps_to_volume.cu",
             ],
             extra_compile_args={"cxx": cxx_args, "nvcc": nvcc_args},
         )

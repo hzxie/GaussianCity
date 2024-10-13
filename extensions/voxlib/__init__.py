@@ -1,6 +1,12 @@
-# Copyright (C) 2021 NVIDIA CORPORATION & AFFILIATES.  All rights reserved.
+# -*- coding: utf-8 -*-
 #
-# This work is made available under the Nvidia Source Code License-NC.
-# To view a copy of this license, check out LICENSE.md
+# @File:   setup.py
+# @Author: NVIDIA Corporation
+# @Date:   2021-10-13 00:00:00
+# @Last Modified by: Haozhe Xie
+# @Last Modified at: 2024-10-13 03:14:15
+# @Email:  root@haozhexie.com
+
 from voxlib import ray_voxel_intersection_perspective
 from voxlib import points_to_volume
+from voxlib import maps_to_volume
