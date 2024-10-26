@@ -9,7 +9,7 @@ S-Lab, Nanyang Technological University
 
 ![Counter](https://api.infinitescript.com/badgen/count?name=hzxie/GaussianCity)
 [![arXiv](https://img.shields.io/badge/arXiv-2406.06526-b31b1b.svg)](https://arxiv.org/abs/2406.06526)
-[![YouTube](https://img.shields.io/badge/Spotlight%20Video-%23FF0000.svg?logo=YouTube&logoColor=white)](https://youtu.be/z2foUIGY2G8)
+[![YouTube](https://img.shields.io/badge/Spotlight%20Video-%23FF0000.svg?logo=YouTube&logoColor=white)](https://youtu.be/anDwIXlfjUA)
 
 ![Teaser](https://www.infinitescript.com/projects/GaussianCity/GaussianCity-Teaser.jpg)
 
