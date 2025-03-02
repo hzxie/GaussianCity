@@ -16,6 +16,7 @@ S-Lab, Nanyang Technological University
 
 ## Changelog 🔥
 
+- [2025/03/02] The hugging face demo is available.
 - [2025/02/27] The training and testing code is released.
 - [2024/05/24] The repo is created.
 
