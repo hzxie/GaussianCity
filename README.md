@@ -114,7 +114,7 @@ By default, all scripts load the [OSM](https://gateway.infinitescript.com/s/OSM)
 ```
 
 1. Generate semantic segmentation using [SEEM](https://github.com/UX-Decoder/Segment-Everything-Everywhere-All-At-Once), following the guidelines provided in [CityDreamer's README](https://github.com/hzxie/CityDreamer/tree/master?tab=readme-ov-file#dataset-preparation).
-2. Generate instance segmetation with the following command.
+2. Generate instance segmentation with the following command.
 
 ```bash
 cd $GCITY_HOME
