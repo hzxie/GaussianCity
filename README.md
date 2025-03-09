@@ -16,7 +16,7 @@ S-Lab, Nanyang Technological University
 
 ## Changelog 🔥
 
-- [2025/03/02] The hugging face demo is available.
+- [2025/03/02] The [Hugging Face demo](https://huggingface.co/spaces/hzxie/gaussian-city) is available (Ranked among the Top 8 Spaces in [Week 11, 2025](https://huggingface.co/spaces?date=2025-W11)).
 - [2025/02/27] The training and testing code is released.
 - [2024/05/24] The repo is created.
 
@@ -114,7 +114,7 @@ By default, all scripts load the [OSM](https://gateway.infinitescript.com/s/OSM)
 ```
 
 1. Generate semantic segmentation using [SEEM](https://github.com/UX-Decoder/Segment-Everything-Everywhere-All-At-Once), following the guidelines provided in [CityDreamer's README](https://github.com/hzxie/CityDreamer/tree/master?tab=readme-ov-file#dataset-preparation).
-2. Generate instance segmetation with the following command.
+2. Generate instance segmentation with the following command.
 
 ```bash
 cd $GCITY_HOME
