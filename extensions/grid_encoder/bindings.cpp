@@ -8,7 +8,7 @@
  * @Ref: https://github.com/ashawkey/torch-ngp
  */
 
-#include <stdint.h>
+#include <cstdint>
 #include <torch/extension.h>
 #include <torch/torch.h>
 

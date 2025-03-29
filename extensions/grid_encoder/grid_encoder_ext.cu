@@ -17,9 +17,10 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <type_traits>
 
 #include <cstdio>
-#include <stdint.h>
+#include <cstdint>
 
 #define CHECK_CUDA(x)                                                          \
   TORCH_CHECK(x.device().is_cuda(), #x " must be a CUDA tensor")

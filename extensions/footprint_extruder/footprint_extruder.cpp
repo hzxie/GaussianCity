@@ -13,8 +13,10 @@
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #define N_DIM 5
 
+#include <array>
 #include <cassert>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
