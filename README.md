@@ -6,7 +6,8 @@
 
 S-Lab, Nanyang Technological University
 
-[![codebeat badge](https://codebeat.co/badges/652ea895-6855-4488-a4f6-ba8d1e2f83a1)](https://codebeat.co/projects/github-com-hzxie-gaussiancity-master)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=hzxie_GaussianCity&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=hzxie_GaussianCity)
+[![codefactor badge](https://www.codefactor.io/repository/github/hzxie/GaussianCity/badge)](https://www.codefactor.io/repository/github/hzxie/GaussianCity)
 ![Counter](https://api.infinitescript.com/badgen/count?name=hzxie/GaussianCity)
 [![arXiv](https://img.shields.io/badge/arXiv-2406.06526-b31b1b.svg)](https://arxiv.org/abs/2406.06526)
 [![HuggingFace](https://img.shields.io/badge/%F0%9F%A4%97-Hugging%20Face-orange)](https://huggingface.co/spaces/hzxie/gaussian-city)
