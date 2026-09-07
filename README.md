@@ -39,8 +39,8 @@ S-Lab, Nanyang Technological University
 
 **Datasets**
 
-- [OSM](https://gateway.infinitescript.com/s/OSM)
-- [GoogleEarth](https://gateway.infinitescript.com/s/GoogleEarth)
+- [OSM](https://gateway.infinitescript.com/?f=OSM)
+- [GoogleEarth](https://gateway.infinitescript.com/?f=GoogleEarth)
 
 **Pretrained Models**
 
@@ -104,7 +104,7 @@ python3 scripts/inference.py
 
 ### Dataset Preparation
 
-By default, all scripts load the [OSM](https://gateway.infinitescript.com/s/OSM) and [GoogleEarth](https://gateway.infinitescript.com/s/GoogleEarth) datasets from `./data/osm` and `./data/google-earth`, respectively. You have the option to specify a different location using runtime arguments.
+By default, all scripts load the [OSM](https://gateway.infinitescript.com/?f=OSM) and [GoogleEarth](https://gateway.infinitescript.com/?f=GoogleEarth) datasets from `./data/osm` and `./data/google-earth`, respectively. You have the option to specify a different location using runtime arguments.
 
 ```
 ├── ...
